@@ -151,11 +151,11 @@ struct AddCardioView: View {
             sessionId: sessionId,
             cardioType: cardioType,
             duration: minutes * 60,
-            distance: Double(distance),
+            distance: parseDecimal(distance),
             calories: Int(calories),
             avgHeartRate: Int(avgHeartRate),
             maxHeartRate: Int(maxHeartRate),
-            incline: Double(incline),
+            incline: parseDecimal(incline),
             resistance: Int(resistance),
             notes: notes.isEmpty ? nil : notes
         )

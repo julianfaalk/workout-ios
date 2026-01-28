@@ -249,6 +249,97 @@ struct LargeWidgetView: View {
 
 // MARK: - Widget Configuration
 
+// MARK: - Lock Screen Widgets
+
+struct LockScreenCircularView: View {
+    let entry: WorkoutEntry
+
+    var body: some View {
+        if entry.isWorkoutActive, let restTime = entry.restTimeRemaining {
+            Gauge(value: Double(restTime), in: 0...90) {
+                Image(systemName: "hourglass")
+            } currentValueLabel: {
+                Text("\(restTime)")
+                    .font(.system(.body, design: .rounded))
+                    .fontWeight(.bold)
+            }
+            .gaugeStyle(.accessoryCircularCapacity)
+        } else {
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: entry.isRestDay ? "bed.double.fill" : "figure.strengthtraining.traditional")
+                    .font(.title2)
+            }
+        }
+    }
+}
+
+struct LockScreenRectangularView: View {
+    let entry: WorkoutEntry
+
+    var body: some View {
+        if entry.isWorkoutActive {
+            VStack(alignment: .leading, spacing: 2) {
+                if let restTime = entry.restTimeRemaining {
+                    HStack {
+                        Image(systemName: "hourglass")
+                        Text("Rest: \(formatWidgetDuration(restTime))")
+                            .fontWeight(.bold)
+                            .monospacedDigit()
+                    }
+                }
+                if let exercise = entry.currentExercise {
+                    Text(exercise)
+                        .font(.caption)
+                }
+                if let progress = entry.setProgress {
+                    Text(progress)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Workout")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                if entry.isRestDay {
+                    HStack {
+                        Image(systemName: "bed.double.fill")
+                        Text("Rest Day")
+                    }
+                    .fontWeight(.bold)
+                } else if let name = entry.templateName {
+                    Text(name)
+                        .fontWeight(.bold)
+                        .lineLimit(2)
+                } else {
+                    Text("No workout today")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+}
+
+struct LockScreenInlineView: View {
+    let entry: WorkoutEntry
+
+    var body: some View {
+        if entry.isWorkoutActive, let restTime = entry.restTimeRemaining {
+            Text("Rest: \(formatWidgetDuration(restTime))")
+        } else if entry.isRestDay {
+            Text("Rest Day")
+        } else if let name = entry.templateName {
+            Text(name)
+        } else {
+            Text("No workout")
+        }
+    }
+}
+
+// MARK: - Widget Configuration
+
 struct WorkoutWidget: Widget {
     let kind: String = "WorkoutWidget"
 
@@ -258,7 +349,14 @@ struct WorkoutWidget: Widget {
         }
         .configurationDisplayName("Workout")
         .description("View your scheduled workouts and track rest timers.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .supportedFamilies([
+            .systemSmall,
+            .systemMedium,
+            .systemLarge,
+            .accessoryCircular,
+            .accessoryRectangular,
+            .accessoryInline
+        ])
     }
 }
 
@@ -274,6 +372,12 @@ struct WorkoutWidgetEntryView: View {
             MediumWidgetView(entry: entry)
         case .systemLarge:
             LargeWidgetView(entry: entry)
+        case .accessoryCircular:
+            LockScreenCircularView(entry: entry)
+        case .accessoryRectangular:
+            LockScreenRectangularView(entry: entry)
+        case .accessoryInline:
+            LockScreenInlineView(entry: entry)
         default:
             SmallWidgetView(entry: entry)
         }
