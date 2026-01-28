@@ -166,9 +166,6 @@ struct AssignTemplateView: View {
     }
 }
 
-// Make ScheduleDay identifiable for sheet
-extension ScheduleDay: Identifiable { }
-
 #Preview {
     ScheduleView()
 }
