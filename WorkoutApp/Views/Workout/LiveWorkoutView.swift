@@ -235,6 +235,11 @@ struct CurrentExerciseView: View {
     var exercise: Exercise { detail.exercise }
     var templateExercise: TemplateExercise { detail.templateExercise }
 
+    private var equipmentIsBarbell: Bool {
+        let eq = (exercise.equipment ?? "").lowercased()
+        return eq.contains("barbell") || eq.contains("langhantel") || eq.contains("sz")
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -248,6 +253,13 @@ struct CurrentExerciseView: View {
                         Text(exercise.muscleGroups.joined(separator: ", "))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                    }
+
+                    if let notes = exercise.notes, !notes.isEmpty {
+                        Text(notes)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .italic()
                     }
 
                     // Target info
@@ -287,14 +299,29 @@ struct CurrentExerciseView: View {
                             }
 
                             VStack {
-                                Text("Weight (kg)")
+                                Text(equipmentIsBarbell ? "Gesamt kg" : "Weight (kg)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 TextField("0", text: $weightInput)
                                     .keyboardType(.decimalPad)
                                     .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
+                                    .frame(width: 100)
                                     .multilineTextAlignment(.center)
+                            }
+                        }
+
+                        if equipmentIsBarbell {
+                            Text("Gesamtgewicht der Langhantel (Stange + Scheiben)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+
+                            if let weight = parseDecimal(weightInput), weight >= 20 {
+                                let perSide = (weight - 20) / 2
+                                Text("= 20 kg Stange + \(String(format: "%.1f", perSide)) kg pro Seite")
+                                    .font(.caption)
+                                    .foregroundColor(.accentColor)
+                                    .fontWeight(.medium)
                             }
                         }
                     } else {
@@ -380,7 +407,7 @@ struct CurrentExerciseView: View {
     private func logCurrentSet() {
         let reps = exercise.exerciseType == .reps ? Int(repsInput) : nil
         let duration = exercise.exerciseType == .timed ? Int(durationInput) : nil
-        let weight = Double(weightInput)
+        let weight = parseDecimal(weightInput)
 
         onLogSet(reps, duration, weight)
 

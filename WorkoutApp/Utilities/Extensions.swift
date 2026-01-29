@@ -1,6 +1,32 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Locale-Aware Decimal Parsing
+
+/// Parses a decimal string using the user's locale (handles both "88.6" and "88,6").
+func parseDecimal(_ string: String) -> Double? {
+    let trimmed = string.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty { return nil }
+
+    // Try the user's current locale first (e.g. German uses comma)
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.locale = Locale.current
+    if let value = formatter.number(from: trimmed)?.doubleValue {
+        return value
+    }
+
+    // Fallback: try POSIX locale (period as separator)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    if let value = formatter.number(from: trimmed)?.doubleValue {
+        return value
+    }
+
+    // Last resort: replace comma with period and try Double()
+    let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+    return Double(normalized)
+}
+
 // MARK: - Date Extensions
 
 extension Date {

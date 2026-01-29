@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import ActivityKit
 
 @MainActor
 class WorkoutViewModel: ObservableObject {
@@ -24,6 +25,7 @@ class WorkoutViewModel: ObservableObject {
     private var workoutTimer: Timer?
     private var restTimer: Timer?
     private var defaultRestTime: Int = 90
+    private var currentActivity: Activity<WorkoutActivityAttributes>?
 
     var currentExercise: TemplateExerciseDetail? {
         guard currentExerciseIndex < templateExercises.count else { return nil }
@@ -61,8 +63,12 @@ class WorkoutViewModel: ObservableObject {
             try db.saveSession(session)
             currentSession = session
 
+            var templateName = "Free Workout"
             if let templateId = templateId {
                 templateExercises = try db.fetchTemplateExercises(templateId: templateId)
+                if let template = try? db.fetchTemplate(id: templateId) {
+                    templateName = template.name
+                }
             }
 
             currentExerciseIndex = 0
@@ -74,6 +80,7 @@ class WorkoutViewModel: ObservableObject {
             isWorkoutActive = true
 
             startWorkoutTimer()
+            startLiveActivity(templateName: templateName)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -88,6 +95,7 @@ class WorkoutViewModel: ObservableObject {
 
         stopWorkoutTimer()
         stopRestTimer()
+        endLiveActivity()
 
         session.completedAt = Date()
         session.duration = workoutDuration
@@ -108,6 +116,7 @@ class WorkoutViewModel: ObservableObject {
     func cancelSession() {
         stopWorkoutTimer()
         stopRestTimer()
+        endLiveActivity()
 
         if let session = currentSession {
             try? db.deleteSession(session)
@@ -125,12 +134,14 @@ class WorkoutViewModel: ObservableObject {
     func nextExercise() {
         if currentExerciseIndex < templateExercises.count - 1 {
             currentExerciseIndex += 1
+            updateLiveActivity()
         }
     }
 
     func previousExercise() {
         if currentExerciseIndex > 0 {
             currentExerciseIndex -= 1
+            updateLiveActivity()
         }
     }
 
@@ -230,7 +241,12 @@ class WorkoutViewModel: ObservableObject {
     private func startWorkoutTimer() {
         workoutTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.workoutDuration += 1
+                guard let self = self else { return }
+                self.workoutDuration += 1
+                // Update live activity every 5 seconds to save resources
+                if self.workoutDuration % 5 == 0 && !self.isRestTimerActive {
+                    self.updateLiveActivity()
+                }
             }
         }
     }
@@ -244,15 +260,16 @@ class WorkoutViewModel: ObservableObject {
         stopRestTimer()
         restTimeRemaining = duration ?? defaultRestTime
         isRestTimerActive = true
+        updateLiveActivity()
 
         restTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
                 if self.restTimeRemaining > 0 {
                     self.restTimeRemaining -= 1
+                    self.updateLiveActivity()
                 } else {
                     self.stopRestTimer()
-                    // Trigger haptic/sound notification
                     self.triggerRestTimerEnd()
                 }
             }
@@ -264,11 +281,13 @@ class WorkoutViewModel: ObservableObject {
         restTimer = nil
         isRestTimerActive = false
         restTimeRemaining = 0
+        updateLiveActivity()
     }
 
     func addRestTime(_ seconds: Int) {
         if isRestTimerActive {
             restTimeRemaining += seconds
+            updateLiveActivity()
         }
     }
 
@@ -276,6 +295,83 @@ class WorkoutViewModel: ObservableObject {
         // Haptic feedback
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
+    }
+
+    // MARK: - Live Activity
+
+    private func startLiveActivity(templateName: String) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        let exerciseName = currentExercise?.exercise.name ?? "Ready"
+        let setProgress = currentExercise != nil ? "Set 1/\(currentExercise?.templateExercise.targetSets ?? 0)" : ""
+
+        let attributes = WorkoutActivityAttributes(
+            templateName: templateName,
+            startedAt: Date()
+        )
+
+        let state = WorkoutActivityAttributes.ContentState(
+            workoutDuration: workoutDuration,
+            isResting: false,
+            restTimeRemaining: 0,
+            currentExercise: exerciseName,
+            setProgress: setProgress,
+            totalSetsCompleted: 0
+        )
+
+        do {
+            let content = ActivityContent(state: state, staleDate: nil)
+            currentActivity = try Activity.request(
+                attributes: attributes,
+                content: content,
+                pushType: nil
+            )
+        } catch {
+            print("Failed to start Live Activity: \(error)")
+        }
+    }
+
+    private func updateLiveActivity() {
+        guard let activity = currentActivity else { return }
+
+        let exerciseName = currentExercise?.exercise.name ?? "Done"
+        let completedForCurrent = completedSetsForCurrentExercise.count
+        let targetSets = currentExercise?.templateExercise.targetSets ?? 0
+        let setProgress = currentExercise != nil ? "Set \(completedForCurrent + 1)/\(targetSets)" : ""
+
+        let state = WorkoutActivityAttributes.ContentState(
+            workoutDuration: workoutDuration,
+            isResting: isRestTimerActive,
+            restTimeRemaining: restTimeRemaining,
+            currentExercise: exerciseName,
+            setProgress: setProgress,
+            totalSetsCompleted: completedSets.count
+        )
+
+        Task {
+            let content = ActivityContent(state: state, staleDate: nil)
+            await activity.update(content)
+        }
+    }
+
+    private func endLiveActivity() {
+        guard let activity = currentActivity else { return }
+
+        let finalState = WorkoutActivityAttributes.ContentState(
+            workoutDuration: workoutDuration,
+            isResting: false,
+            restTimeRemaining: 0,
+            currentExercise: "Workout Complete",
+            setProgress: "",
+            totalSetsCompleted: completedSets.count
+        )
+
+        Task {
+            let content = ActivityContent(state: finalState, staleDate: nil)
+            await activity.end(content, dismissalPolicy: .after(.now + 60))
+        }
+
+        currentActivity = nil
     }
 
     // MARK: - Helpers
