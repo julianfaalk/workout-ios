@@ -299,8 +299,23 @@ struct CurrentExerciseView: View {
 
                 // Input section
                 VStack(spacing: 16) {
-                    Text("Set \(completedSets.count + 1)")
-                        .font(.headline)
+                    HStack(spacing: 8) {
+                        Text("Set \(completedSets.count + 1)")
+                            .font(.headline)
+
+                        if let targetSets = templateExercise.targetSets {
+                            if completedSets.count + 1 > targetSets {
+                                Text("(+\(completedSets.count + 1 - targetSets))")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                                    .fontWeight(.semibold)
+                            } else {
+                                Text("of \(targetSets)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
 
                     if exercise.exerciseType == .reps {
                         HStack(spacing: 16) {
@@ -311,6 +326,14 @@ struct CurrentExerciseView: View {
                                 TextField("0", text: $repsInput)
                                     .keyboardType(.numberPad)
                                     .textFieldStyle(.roundedBorder)
+                                    .toolbar {
+                                        ToolbarItemGroup(placement: .keyboard) {
+                                            Spacer()
+                                            Button("Done") {
+                                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                            }
+                                        }
+                                    }
                                     .frame(width: 80)
                                     .multilineTextAlignment(.center)
                             }
@@ -322,6 +345,14 @@ struct CurrentExerciseView: View {
                                 TextField("0", text: $weightInput)
                                     .keyboardType(.decimalPad)
                                     .textFieldStyle(.roundedBorder)
+                                    .toolbar {
+                                        ToolbarItemGroup(placement: .keyboard) {
+                                            Spacer()
+                                            Button("Done") {
+                                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                            }
+                                        }
+                                    }
                                     .frame(width: 100)
                                     .multilineTextAlignment(.center)
                             }
@@ -352,6 +383,14 @@ struct CurrentExerciseView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 80)
                                     .multilineTextAlignment(.center)
+                                    .toolbar {
+                                        ToolbarItemGroup(placement: .keyboard) {
+                                            Spacer()
+                                            Button("Done") {
+                                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                            }
+                                        }
+                                    }
                             }
 
                             VStack {
@@ -363,6 +402,14 @@ struct CurrentExerciseView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 80)
                                     .multilineTextAlignment(.center)
+                                    .toolbar {
+                                        ToolbarItemGroup(placement: .keyboard) {
+                                            Spacer()
+                                            Button("Done") {
+                                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                            }
+                                        }
+                                    }
                             }
                         }
                     }
@@ -404,6 +451,11 @@ struct CurrentExerciseView: View {
                 }
             }
             .padding()
+        }
+        .scrollDismissesKeyboard(.immediately)
+        .onTapGesture {
+            // Dismiss keyboard when tapping outside
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
         .onAppear {
             // Pre-fill with target values
