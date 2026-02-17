@@ -730,6 +730,15 @@ final class DatabaseService {
         }
     }
 
+    func fetchActiveSession() throws -> WorkoutSession? {
+        try dbQueue.read { db in
+            try WorkoutSession
+                .filter(WorkoutSession.Columns.completedAt == nil)
+                .order(WorkoutSession.Columns.startedAt.desc)
+                .fetchOne(db)
+        }
+    }
+
     func fetchSessionWithDetails(id: UUID) throws -> SessionWithDetails? {
         try dbQueue.read { db in
             guard let session = try WorkoutSession.fetchOne(db, key: id) else {

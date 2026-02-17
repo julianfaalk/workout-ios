@@ -33,6 +33,8 @@ class WorkoutViewModel: ObservableObject {
     private let variationHistoryKeyPrefix = "workout.variation.history."
     private let variationHistoryDepth = 3
     private let variationRetryCount = 8
+    private let sessionExerciseCachePrefix = "workout.session.exercises."
+    private let sessionIndexCachePrefix = "workout.session.index."
 
     // Timestamps for background persistence
     private var workoutStartTime: Date?
@@ -56,6 +58,9 @@ class WorkoutViewModel: ObservableObject {
     init() {
         loadSettings()
         setupBackgroundObservers()
+        Task { @MainActor in
+            await restoreActiveSessionIfNeeded()
+        }
     }
 
     private func loadSettings() {
@@ -73,7 +78,9 @@ class WorkoutViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleAppWillResignActive()
+            Task { @MainActor in
+                self?.handleAppWillResignActive()
+            }
         }
 
         NotificationCenter.default.addObserver(
@@ -81,20 +88,21 @@ class WorkoutViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleAppDidBecomeActive()
+            Task { @MainActor in
+                self?.handleAppDidBecomeActive()
+            }
         }
     }
 
     private func handleAppWillResignActive() {
-        // Store current state for when we come back
-        // Timers will be recalculated from timestamps when we return
+        persistSessionStateCache()
     }
 
     private func handleAppDidBecomeActive() {
-        // Recalculate workout duration from start time
-        if isWorkoutActive, let startTime = workoutStartTime {
+        // Recalculate workout duration from persisted session start time
+        if isWorkoutActive, let startTime = currentSession?.startedAt ?? workoutStartTime {
             let elapsed = Int(Date().timeIntervalSince(startTime))
-            workoutDuration = elapsed + workoutPausedDuration
+            workoutDuration = max(0, elapsed)
         }
 
         // Recalculate rest timer from end time
@@ -146,13 +154,14 @@ class WorkoutViewModel: ObservableObject {
             cardioSessions = []
             workoutDuration = 0
             workoutPausedDuration = 0
-            workoutStartTime = Date()
+            workoutStartTime = session.startedAt
             sessionNotes = ""
             newPRs = []
             lastEnteredValues = [:]
             isWorkoutActive = true
 
             startWorkoutTimer()
+            persistSessionStateCache()
             startLiveActivity(templateName: templateName)
         } catch {
             errorMessage = error.localizedDescription
@@ -171,11 +180,12 @@ class WorkoutViewModel: ObservableObject {
         endLiveActivity()
 
         session.completedAt = Date()
-        session.duration = workoutDuration
+        session.duration = max(workoutDuration, Int(session.completedAt?.timeIntervalSince(session.startedAt) ?? 0))
         session.notes = sessionNotes.isEmpty ? nil : sessionNotes
 
         do {
             try db.saveSession(session)
+            clearSessionStateCache(sessionId: session.id)
             currentSession = nil
             isWorkoutActive = false
 
@@ -193,6 +203,7 @@ class WorkoutViewModel: ObservableObject {
 
         if let session = currentSession {
             try? db.deleteSession(session)
+            clearSessionStateCache(sessionId: session.id)
         }
 
         currentSession = nil
@@ -207,6 +218,7 @@ class WorkoutViewModel: ObservableObject {
     func nextExercise() {
         if currentExerciseIndex < templateExercises.count - 1 {
             currentExerciseIndex += 1
+            persistSessionStateCache()
             updateLiveActivity()
         }
     }
@@ -214,6 +226,7 @@ class WorkoutViewModel: ObservableObject {
     func previousExercise() {
         if currentExerciseIndex > 0 {
             currentExerciseIndex -= 1
+            persistSessionStateCache()
             updateLiveActivity()
         }
     }
@@ -232,6 +245,7 @@ class WorkoutViewModel: ObservableObject {
             templateExercise: templateExercise,
             exercise: exercise
         ))
+        persistSessionStateCache()
     }
 
     // MARK: - Set Logging
@@ -323,12 +337,13 @@ class WorkoutViewModel: ObservableObject {
     // MARK: - Timers
 
     private func startWorkoutTimer() {
+        stopWorkoutTimer()
         workoutTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
-                // Calculate from start time for accuracy (handles background)
-                if let startTime = self.workoutStartTime {
-                    self.workoutDuration = Int(Date().timeIntervalSince(startTime)) + self.workoutPausedDuration
+                // Always derive from the persisted session start time.
+                if let startTime = self.currentSession?.startedAt ?? self.workoutStartTime {
+                    self.workoutDuration = max(0, Int(Date().timeIntervalSince(startTime)))
                 }
                 // Update live activity every 5 seconds to save resources
                 if self.workoutDuration % 5 == 0 && !self.isRestTimerActive {
@@ -488,6 +503,118 @@ class WorkoutViewModel: ObservableObject {
 
     var formattedRestTime: String {
         formatDuration(restTimeRemaining)
+    }
+
+    // MARK: - Active Session Recovery
+
+    private func restoreActiveSessionIfNeeded() async {
+        do {
+            guard let activeSession = try db.fetchActiveSession() else { return }
+            currentSession = activeSession
+            isWorkoutActive = true
+
+            workoutStartTime = activeSession.startedAt
+            workoutDuration = max(0, Int(Date().timeIntervalSince(activeSession.startedAt)))
+            sessionNotes = activeSession.notes ?? ""
+            newPRs = []
+            errorMessage = nil
+
+            if let sessionDetails = try db.fetchSessionWithDetails(id: activeSession.id) {
+                completedSets = sessionDetails.sets.map { $0.sessionSet }
+                cardioSessions = sessionDetails.cardioSessions
+            } else {
+                completedSets = []
+                cardioSessions = []
+            }
+
+            if let cachedExercises = loadCachedTemplateExercises(sessionId: activeSession.id), !cachedExercises.isEmpty {
+                templateExercises = cachedExercises
+            } else if let templateId = activeSession.templateId {
+                templateExercises = try db.fetchTemplateExercises(templateId: templateId)
+            } else {
+                templateExercises = []
+            }
+
+            currentExerciseIndex = restoredExerciseIndex(sessionId: activeSession.id)
+            startWorkoutTimer()
+            ensureLiveActivityForCurrentSession()
+            updateLiveActivity()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func ensureLiveActivityForCurrentSession() {
+        if let existing = Activity<WorkoutActivityAttributes>.activities.first {
+            currentActivity = existing
+            return
+        }
+
+        let templateName: String
+        if let templateId = currentSession?.templateId,
+           let template = try? db.fetchTemplate(id: templateId) {
+            templateName = template.name
+        } else {
+            templateName = "Free Workout"
+        }
+
+        startLiveActivity(templateName: templateName)
+    }
+
+    private func restoredExerciseIndex(sessionId: UUID) -> Int {
+        let cachedIndex = UserDefaults.standard.integer(forKey: sessionIndexCacheKey(sessionId: sessionId))
+        if templateExercises.isEmpty {
+            return 0
+        }
+
+        if cachedIndex >= 0 && cachedIndex < templateExercises.count {
+            return cachedIndex
+        }
+
+        for (index, detail) in templateExercises.enumerated() {
+            guard let targetSets = detail.templateExercise.targetSets else { continue }
+            let completedForExercise = completedSets.filter { $0.exerciseId == detail.exercise.id }.count
+            if completedForExercise < targetSets {
+                return index
+            }
+        }
+
+        return max(0, min(templateExercises.count - 1, cachedIndex))
+    }
+
+    // MARK: - Session State Cache
+
+    private func sessionExerciseCacheKey(sessionId: UUID) -> String {
+        "\(sessionExerciseCachePrefix)\(sessionId.uuidString)"
+    }
+
+    private func sessionIndexCacheKey(sessionId: UUID) -> String {
+        "\(sessionIndexCachePrefix)\(sessionId.uuidString)"
+    }
+
+    private func persistSessionStateCache() {
+        guard let session = currentSession else { return }
+
+        do {
+            let data = try JSONEncoder().encode(templateExercises)
+            UserDefaults.standard.set(data, forKey: sessionExerciseCacheKey(sessionId: session.id))
+            UserDefaults.standard.set(currentExerciseIndex, forKey: sessionIndexCacheKey(sessionId: session.id))
+        } catch {
+            // Non-fatal: session still works, only restoration quality degrades.
+            print("Failed to persist workout session cache: \(error)")
+        }
+    }
+
+    private func loadCachedTemplateExercises(sessionId: UUID) -> [TemplateExerciseDetail]? {
+        guard let data = UserDefaults.standard.data(forKey: sessionExerciseCacheKey(sessionId: sessionId)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode([TemplateExerciseDetail].self, from: data)
+    }
+
+    private func clearSessionStateCache(sessionId: UUID) {
+        UserDefaults.standard.removeObject(forKey: sessionExerciseCacheKey(sessionId: sessionId))
+        UserDefaults.standard.removeObject(forKey: sessionIndexCacheKey(sessionId: sessionId))
     }
 
     // MARK: - Template Variation

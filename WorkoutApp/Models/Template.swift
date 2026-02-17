@@ -117,7 +117,7 @@ struct TemplateWithExercises: Identifiable {
     var name: String { template.name }
 }
 
-struct TemplateExerciseDetail: Identifiable, Hashable {
+struct TemplateExerciseDetail: Identifiable, Hashable, Codable {
     var templateExercise: TemplateExercise
     var exercise: Exercise
 
