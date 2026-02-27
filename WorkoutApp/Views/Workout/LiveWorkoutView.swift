@@ -9,6 +9,7 @@ struct LiveWorkoutView: View {
     @State private var showingFinishConfirmation = false
     @State private var showingCancelConfirmation = false
     @State private var showingSessionSummary = false
+    @State private var warmupCardioType: CardioType = .treadmill
     @State private var completedSession: SessionWithDetails?
 
     var body: some View {
@@ -39,27 +40,54 @@ struct LiveWorkoutView: View {
                 // Main content
                 Group {
                     if let currentExercise = viewModel.currentExercise {
-                        CurrentExerciseView(
-                            detail: currentExercise,
-                            completedSets: viewModel.completedSetsForCurrentExercise,
-                            lastEnteredValues: viewModel.getLastEnteredValues(for: currentExercise.exercise.id),
-                            onLogSet: { reps, duration, weight in
-                                // Save last entered values for this exercise
-                                viewModel.setLastEnteredValues(
-                                    for: currentExercise.exercise.id,
-                                    reps: reps,
-                                    weight: weight
+                        VStack(spacing: 10) {
+                            if !viewModel.hasLoggedWarmup {
+                                WarmupCardioPrompt(
+                                    selectedType: $warmupCardioType,
+                                    onAddWarmup: {
+                                        Task {
+                                            await viewModel.addWarmupCardio(type: warmupCardioType)
+                                        }
+                                    }
                                 )
-                                Task {
-                                    await viewModel.logSet(reps: reps, duration: duration, weight: weight)
-                                }
-                            },
-                            onDeleteSet: { set in
-                                Task {
-                                    await viewModel.deleteSet(set)
-                                }
+                                .padding(.horizontal, 14)
+                                .padding(.top, 10)
                             }
-                        )
+
+                            CurrentExerciseView(
+                                detail: currentExercise,
+                                completedSets: viewModel.completedSetsForCurrentExercise,
+                                lastEnteredValues: viewModel.getLastEnteredValues(for: currentExercise.exercise.id),
+                                isLoggingEnabled: viewModel.hasLoggedWarmup,
+                                loggingHint: viewModel.hasLoggedWarmup
+                                    ? nil
+                                    : "Bitte zuerst 10 Min Warm-up Cardio starten.",
+                                onLogSet: { reps, duration, weight in
+                                    // Save last entered values for this exercise
+                                    viewModel.setLastEnteredValues(
+                                        for: currentExercise.exercise.id,
+                                        reps: reps,
+                                        weight: weight
+                                    )
+                                    Task {
+                                        await viewModel.logSet(reps: reps, duration: duration, weight: weight)
+                                    }
+                                },
+                                onDeleteSet: { set in
+                                    Task {
+                                        await viewModel.deleteSet(set)
+                                    }
+                                }
+                            )
+
+                            if viewModel.isLastExercise {
+                                FinisherCardioPrompt {
+                                    showingAddCardio = true
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 8)
+                            }
+                        }
                     } else if viewModel.templateExercises.isEmpty {
                         EmptyWorkoutView(
                             onAddExercise: { showingAddExercise = true },
@@ -309,10 +337,76 @@ private struct RestAdjustButton: View {
     }
 }
 
+private struct WarmupCardioPrompt: View {
+    @Binding var selectedType: CardioType
+    let onAddWarmup: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("10 Min Warm-up", systemImage: "figure.run")
+                    .font(.headline)
+                Spacer()
+            }
+
+            Text("Starte jedes Workout mit Cardio auf dem Gerät deiner Wahl.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Picker("Cardio Type", selection: $selectedType) {
+                ForEach(CardioType.allCases, id: \.self) { type in
+                    Text(type.displayName).tag(type)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Button(action: onAddWarmup) {
+                Label("Warm-up hinzufügen", systemImage: "plus.circle.fill")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
+        .padding(14)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct FinisherCardioPrompt: View {
+    let onAddCardio: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Optional: Cardio Finisher")
+                .font(.headline)
+            Text("Wenn du noch Energie hast, hänge zum Schluss Cardio dran.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Button(action: onAddCardio) {
+                Label("Cardio hinzufügen", systemImage: "figure.run")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor.opacity(0.15))
+                    .foregroundColor(.accentColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
+        .padding(14)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
 struct CurrentExerciseView: View {
     let detail: TemplateExerciseDetail
     let completedSets: [SessionSet]
     let lastEnteredValues: (reps: Int?, weight: Double?)
+    let isLoggingEnabled: Bool
+    let loggingHint: String?
     let onLogSet: (Int?, Int?, Double?) -> Void
     let onDeleteSet: (SessionSet) -> Void
 
@@ -454,6 +548,15 @@ struct CurrentExerciseView: View {
                             .background(Color.accentColor)
                             .foregroundColor(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(!isLoggingEnabled)
+                    .opacity(isLoggingEnabled ? 1 : 0.5)
+
+                    if let hint = loggingHint, !hint.isEmpty {
+                        Text(hint)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .padding(16)

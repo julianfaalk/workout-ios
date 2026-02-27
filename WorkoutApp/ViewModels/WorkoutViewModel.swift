@@ -30,9 +30,8 @@ class WorkoutViewModel: ObservableObject {
     private var restTimer: Timer?
     private var defaultRestTime: Int = 90
     private var currentActivity: Activity<WorkoutActivityAttributes>?
-    private let variationHistoryKeyPrefix = "workout.variation.history."
-    private let variationHistoryDepth = 3
-    private let variationRetryCount = 8
+    private let categoryVariantKeyPrefix = "workout.variation.category.last."
+    private let warmupCardioTag = "[warmup]"
     private let sessionExerciseCachePrefix = "workout.session.exercises."
     private let sessionIndexCachePrefix = "workout.session.index."
 
@@ -53,6 +52,13 @@ class WorkoutViewModel: ObservableObject {
 
     var isLastExercise: Bool {
         currentExerciseIndex >= templateExercises.count - 1
+    }
+
+    var hasLoggedWarmup: Bool {
+        cardioSessions.contains { session in
+            guard let notes = session.notes?.lowercased() else { return false }
+            return notes.contains(warmupCardioTag)
+        }
     }
 
     init() {
@@ -139,14 +145,15 @@ class WorkoutViewModel: ObservableObject {
 
             var templateName = "Free Workout"
             if let templateId = templateId {
+                if let template = try? db.fetchTemplate(id: templateId) {
+                    templateName = template.name
+                }
+
                 let baseTemplateExercises = try db.fetchTemplateExercises(templateId: templateId)
                 templateExercises = try buildVariedTemplateExercises(
                     templateId: templateId,
                     baseExercises: baseTemplateExercises
                 )
-                if let template = try? db.fetchTemplate(id: templateId) {
-                    templateName = template.name
-                }
             }
 
             currentExerciseIndex = 0
@@ -158,6 +165,7 @@ class WorkoutViewModel: ObservableObject {
             sessionNotes = ""
             newPRs = []
             lastEnteredValues = [:]
+            templateExercises = try applyPersistedExerciseDefaults(to: templateExercises)
             isWorkoutActive = true
 
             startWorkoutTimer()
@@ -241,10 +249,27 @@ class WorkoutViewModel: ObservableObject {
             exerciseId: exercise.id,
             sortOrder: templateExercises.count
         )
-        templateExercises.append(TemplateExerciseDetail(
+        var detail = TemplateExerciseDetail(
             templateExercise: templateExercise,
             exercise: exercise
-        ))
+        )
+
+        do {
+            let persisted = try db.fetchLastLoggedValues(exerciseId: exercise.id)
+            if let reps = persisted.reps {
+                detail.templateExercise.targetReps = reps
+            }
+            if let weight = persisted.weight {
+                detail.templateExercise.targetWeight = weight
+            }
+            if persisted.reps != nil || persisted.weight != nil {
+                lastEnteredValues[exercise.id] = persisted
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        templateExercises.append(detail)
         persistSessionStateCache()
     }
 
@@ -252,6 +277,10 @@ class WorkoutViewModel: ObservableObject {
 
     func logSet(reps: Int?, duration: Int?, weight: Double?) async {
         guard let session = currentSession, let current = currentExercise else { return }
+        guard hasLoggedWarmup else {
+            errorMessage = "Bitte zuerst 10 Minuten Warm-up Cardio loggen."
+            return
+        }
 
         let setNumber = completedSetsForCurrentExercise.count + 1
 
@@ -312,6 +341,19 @@ class WorkoutViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    func addWarmupCardio(type: CardioType) async {
+        guard let session = currentSession else { return }
+
+        let warmup = CardioSession(
+            sessionId: session.id,
+            cardioType: type,
+            duration: 10 * 60,
+            notes: "\(warmupCardioTag) 10 minute warm-up"
+        )
+
+        await addCardioSession(warmup)
     }
 
     func deleteCardioSession(_ cardio: CardioSession) async {
@@ -505,6 +547,32 @@ class WorkoutViewModel: ObservableObject {
         formatDuration(restTimeRemaining)
     }
 
+    private func applyPersistedExerciseDefaults(
+        to exercises: [TemplateExerciseDetail]
+    ) throws -> [TemplateExerciseDetail] {
+        var updated: [TemplateExerciseDetail] = []
+
+        for var detail in exercises {
+            let persisted = try db.fetchLastLoggedValues(exerciseId: detail.exercise.id)
+
+            if let reps = persisted.reps {
+                detail.templateExercise.targetReps = reps
+            }
+
+            if let weight = persisted.weight {
+                detail.templateExercise.targetWeight = weight
+            }
+
+            if persisted.reps != nil || persisted.weight != nil {
+                lastEnteredValues[detail.exercise.id] = persisted
+            }
+
+            updated.append(detail)
+        }
+
+        return updated
+    }
+
     // MARK: - Active Session Recovery
 
     private func restoreActiveSessionIfNeeded() async {
@@ -527,12 +595,21 @@ class WorkoutViewModel: ObservableObject {
                 cardioSessions = []
             }
 
+            lastEnteredValues = [:]
             if let cachedExercises = loadCachedTemplateExercises(sessionId: activeSession.id), !cachedExercises.isEmpty {
                 templateExercises = cachedExercises
             } else if let templateId = activeSession.templateId {
-                templateExercises = try db.fetchTemplateExercises(templateId: templateId)
+                templateExercises = try applyPersistedExerciseDefaults(
+                    to: db.fetchTemplateExercises(templateId: templateId)
+                )
             } else {
                 templateExercises = []
+            }
+
+            for set in completedSets.sorted(by: { $0.completedAt < $1.completedAt }) {
+                if set.reps != nil || set.weight != nil {
+                    lastEnteredValues[set.exerciseId] = (set.reps, set.weight)
+                }
             }
 
             currentExerciseIndex = restoredExerciseIndex(sessionId: activeSession.id)
@@ -623,44 +700,34 @@ class WorkoutViewModel: ObservableObject {
         templateId: UUID,
         baseExercises: [TemplateExerciseDetail]
     ) throws -> [TemplateExerciseDetail] {
-        guard baseExercises.count > 1 else { return baseExercises }
+        guard !baseExercises.isEmpty else { return [] }
+        guard baseExercises.count > 1 else { return reorderForTrainingFlow(baseExercises) }
 
         let allExercises = try db.fetchAllExercises()
-        let recentSignatures = loadVariationHistory(templateId: templateId)
-        let blockedSignatures = Array(recentSignatures.prefix(2))
-        let recentUsagePenalty = recentExercisePenalty(templateId: templateId)
         let slotCandidates = buildSlotCandidates(baseExercises: baseExercises, allExercises: allExercises)
+        let variantA = primaryVariant(baseExercises: baseExercises)
+        let variantB = secondaryVariant(
+            baseExercises: baseExercises,
+            slotCandidates: slotCandidates,
+            primaryVariant: variantA
+        )
 
-        var candidate = baseExercises
-        var selectedSignature = signature(for: candidate)
+        let signatureA = signature(for: variantA)
+        let signatureB = signature(for: variantB)
 
-        for _ in 0..<variationRetryCount {
-            let next = generateVariationCandidate(
-                baseExercises: baseExercises,
-                slotCandidates: slotCandidates,
-                recentUsagePenalty: recentUsagePenalty
-            )
-            let nextSignature = signature(for: next)
-            candidate = next
-            selectedSignature = nextSignature
-
-            if !blockedSignatures.contains(nextSignature) {
-                break
-            }
+        // If no meaningful alternative is possible, keep the best-ordered baseline.
+        if signatureA == signatureB {
+            saveLastUsedVariantIndex(0, categoryKey: templateCategoryKey(templateId: templateId))
+            return reorderForTrainingFlow(variantA)
         }
 
-        if blockedSignatures.contains(selectedSignature) {
-            candidate = forceSingleSlotChange(
-                candidate: candidate,
-                baseExercises: baseExercises,
-                slotCandidates: slotCandidates,
-                blockedSignatures: blockedSignatures
-            )
-            selectedSignature = signature(for: candidate)
-        }
+        let categoryKey = templateCategoryKey(templateId: templateId)
+        let lastVariant = lastUsedVariantIndex(categoryKey: categoryKey)
+        let nextVariant = lastVariant == 0 ? 1 : 0
+        saveLastUsedVariantIndex(nextVariant, categoryKey: categoryKey)
 
-        saveVariationSignature(selectedSignature, templateId: templateId)
-        return candidate
+        let selected = nextVariant == 0 ? variantA : variantB
+        return reorderForTrainingFlow(selected)
     }
 
     private func buildSlotCandidates(
@@ -687,98 +754,122 @@ class WorkoutViewModel: ObservableObject {
         }
     }
 
-    private func generateVariationCandidate(
+    private func primaryVariant(
+        baseExercises: [TemplateExerciseDetail]
+    ) -> [TemplateExerciseDetail] {
+        baseExercises.enumerated().map { index, base in
+            detailWithExercise(base: base, exercise: base.exercise, sortOrder: index)
+        }
+    }
+
+    private func secondaryVariant(
         baseExercises: [TemplateExerciseDetail],
         slotCandidates: [[Exercise]],
-        recentUsagePenalty: [UUID: Double]
+        primaryVariant: [TemplateExerciseDetail]
     ) -> [TemplateExerciseDetail] {
-        var result: [TemplateExerciseDetail] = []
+        guard !baseExercises.isEmpty else { return [] }
+
+        var varied: [TemplateExerciseDetail] = []
         var usedExerciseIDs = Set<UUID>()
 
         for index in baseExercises.indices {
             let base = baseExercises[index]
-            let isAnchorSlot = index == 0
+            let primaryExercise = primaryVariant[index].exercise
 
-            if isAnchorSlot {
-                result.append(detailWithExercise(base: base, exercise: base.exercise, sortOrder: index))
-                usedExerciseIDs.insert(base.exercise.id)
-                continue
-            }
-
-            let candidates = slotCandidates[index]
-            if candidates.isEmpty {
-                result.append(detailWithExercise(base: base, exercise: base.exercise, sortOrder: index))
-                usedExerciseIDs.insert(base.exercise.id)
-                continue
-            }
-
-            let ranked = candidates
-                .map { exercise -> (Exercise, Double) in
-                    var score = Double.random(in: 0...0.6)
-
-                    if usedExerciseIDs.contains(exercise.id) {
-                        score += 100
-                    }
-
-                    // Keep some continuity while still preferring variation.
-                    if exercise.id == base.exercise.id {
-                        score += 1.2
-                    }
-
-                    score += recentUsagePenalty[exercise.id] ?? 0
-                    return (exercise, score)
+            let alternatives = slotCandidates[index]
+                .filter { candidate in
+                    guard candidate.exerciseType == base.exercise.exerciseType else { return false }
+                    guard !usedExerciseIDs.contains(candidate.id) else { return false }
+                    return candidate.id != primaryExercise.id
                 }
-                .sorted { $0.1 < $1.1 }
+                .sorted { lhs, rhs in
+                    let leftRank = trainingFlowRank(for: lhs)
+                    let rightRank = trainingFlowRank(for: rhs)
+                    if leftRank.muscleRank != rightRank.muscleRank {
+                        return leftRank.muscleRank < rightRank.muscleRank
+                    }
+                    if leftRank.isolationRank != rightRank.isolationRank {
+                        return leftRank.isolationRank < rightRank.isolationRank
+                    }
+                    return lhs.name < rhs.name
+                }
 
-            let topCount = min(3, ranked.count)
-            let picked = topCount > 1
-                ? ranked[Int.random(in: 0..<topCount)].0
-                : ranked[0].0
-
-            result.append(detailWithExercise(base: base, exercise: picked, sortOrder: index))
-            usedExerciseIDs.insert(picked.id)
+            let chosenExercise = alternatives.first ?? primaryExercise
+            varied.append(detailWithExercise(base: base, exercise: chosenExercise, sortOrder: index))
+            usedExerciseIDs.insert(chosenExercise.id)
         }
 
-        return result
+        return varied
     }
 
-    private func forceSingleSlotChange(
-        candidate: [TemplateExerciseDetail],
-        baseExercises: [TemplateExerciseDetail],
-        slotCandidates: [[Exercise]],
-        blockedSignatures: [String]
+    private func reorderForTrainingFlow(
+        _ exercises: [TemplateExerciseDetail]
     ) -> [TemplateExerciseDetail] {
-        guard candidate.count > 1 else { return candidate }
+        let sorted = exercises.sorted { lhs, rhs in
+            let leftRank = trainingFlowRank(for: lhs.exercise)
+            let rightRank = trainingFlowRank(for: rhs.exercise)
 
-        var updated = candidate
-        var used = Set(updated.map { $0.exercise.id })
-
-        for index in 1..<updated.count {
-            let currentExerciseId = updated[index].exercise.id
-            for alternative in slotCandidates[index] {
-                guard alternative.id != currentExerciseId else { continue }
-                guard !used.contains(alternative.id) else { continue }
-
-                used.remove(currentExerciseId)
-                used.insert(alternative.id)
-                updated[index] = detailWithExercise(
-                    base: baseExercises[index],
-                    exercise: alternative,
-                    sortOrder: index
-                )
-
-                let newSignature = signature(for: updated)
-                if !blockedSignatures.contains(newSignature) {
-                    return updated
-                }
-
-                used.remove(alternative.id)
-                used.insert(currentExerciseId)
-                updated[index] = candidate[index]
+            if leftRank.muscleRank != rightRank.muscleRank {
+                return leftRank.muscleRank < rightRank.muscleRank
             }
+
+            if leftRank.isolationRank != rightRank.isolationRank {
+                return leftRank.isolationRank < rightRank.isolationRank
+            }
+
+            return lhs.templateExercise.sortOrder < rhs.templateExercise.sortOrder
         }
 
-        return candidate
+        return sorted.enumerated().map { index, detail in
+            var templateExercise = detail.templateExercise
+            templateExercise.sortOrder = index
+            return TemplateExerciseDetail(templateExercise: templateExercise, exercise: detail.exercise)
+        }
+    }
+
+    private func trainingFlowRank(for exercise: Exercise) -> (muscleRank: Int, isolationRank: Int) {
+        let muscles = normalizedMuscles(exercise.muscleGroups)
+
+        let largeGroups: Set<String> = ["chest", "back", "quadriceps", "hamstrings", "glutes"]
+        let mediumGroups: Set<String> = ["shoulders", "core"]
+        let smallGroups: Set<String> = ["biceps", "triceps", "forearms", "calves"]
+
+        let muscleRank: Int
+        if !muscles.isDisjoint(with: largeGroups) {
+            muscleRank = 0
+        } else if !muscles.isDisjoint(with: mediumGroups) {
+            muscleRank = 1
+        } else if !muscles.isDisjoint(with: smallGroups) {
+            muscleRank = 2
+        } else {
+            muscleRank = 1
+        }
+
+        let isolationRank = isLikelyIsolation(exercise: exercise, normalizedMuscles: muscles) ? 1 : 0
+        return (muscleRank, isolationRank)
+    }
+
+    private func isLikelyIsolation(exercise: Exercise, normalizedMuscles: Set<String>) -> Bool {
+        let compoundKeywords = [
+            "press", "bench", "row", "rudern", "squat", "kniebeuge",
+            "deadlift", "kreuzheben", "lunge", "dip", "pull", "latzug", "beinpresse"
+        ]
+
+        let isolationKeywords = [
+            "curl", "pushdown", "extension", "kickback", "fly", "heben", "raise", "crunch"
+        ]
+
+        let name = exercise.name.lowercased()
+        if compoundKeywords.contains(where: { name.contains($0) }) {
+            return false
+        }
+
+        if isolationKeywords.contains(where: { name.contains($0) }) {
+            return true
+        }
+
+        let smallGroups: Set<String> = ["biceps", "triceps", "forearms", "calves"]
+        return normalizedMuscles.count <= 1 || !normalizedMuscles.isDisjoint(with: smallGroups)
     }
 
     private func detailWithExercise(
@@ -792,40 +883,42 @@ class WorkoutViewModel: ObservableObject {
         return TemplateExerciseDetail(templateExercise: templateExercise, exercise: exercise)
     }
 
-    private func recentExercisePenalty(templateId: UUID) -> [UUID: Double] {
-        var penalty: [UUID: Double] = [:]
-
-        let recentSignatures = loadVariationHistory(templateId: templateId)
-        for (index, signature) in recentSignatures.prefix(2).enumerated() {
-            let score = index == 0 ? 3.0 : 1.5
-            for exerciseId in parseSignature(signature) {
-                penalty[exerciseId, default: 0] += score
-            }
+    private func templateCategoryKey(templateId: UUID) -> String {
+        guard let template = try? db.fetchTemplate(id: templateId) else {
+            return "template-\(templateId.uuidString)"
         }
 
-        let recentSessionExercises = fetchRecentTemplateExerciseUsage(templateId: templateId, limit: 2)
-        for (index, exerciseIds) in recentSessionExercises.enumerated() {
-            let score = index == 0 ? 2.0 : 1.0
-            for exerciseId in exerciseIds {
-                penalty[exerciseId, default: 0] += score
-            }
+        let normalizedName = template.name.lowercased()
+
+        if normalizedName.contains("push") || normalizedName.contains("brust") {
+            return "push"
+        }
+        if normalizedName.contains("pull") || normalizedName.contains("rücken") {
+            return "pull"
+        }
+        if normalizedName.contains("leg") || normalizedName.contains("bein") {
+            return "legs"
+        }
+        if normalizedName.contains("schulter") || normalizedName.contains("shoulder") {
+            return "shoulders"
         }
 
-        return penalty
+        return "template-\(templateId.uuidString)"
     }
 
-    private func fetchRecentTemplateExerciseUsage(templateId: UUID, limit: Int) -> [[UUID]] {
-        do {
-            let sessions = try db.fetchRecentSessions(limit: 30)
-                .filter { $0.session.templateId == templateId }
-                .prefix(limit)
+    private func lastUsedVariantIndex(categoryKey: String) -> Int? {
+        let key = categoryVariantKey(categoryKey: categoryKey)
+        guard UserDefaults.standard.object(forKey: key) != nil else { return nil }
+        return UserDefaults.standard.integer(forKey: key)
+    }
 
-            return sessions.map { session in
-                Array(Set(session.sets.map { $0.exercise.id }))
-            }
-        } catch {
-            return []
-        }
+    private func saveLastUsedVariantIndex(_ index: Int, categoryKey: String) {
+        UserDefaults.standard.set(index, forKey: categoryVariantKey(categoryKey: categoryKey))
+    }
+
+    private func categoryVariantKey(categoryKey: String) -> String {
+        let safeCategory = categoryKey.replacingOccurrences(of: " ", with: "-")
+        return "\(categoryVariantKeyPrefix)\(safeCategory)"
     }
 
     private func normalizedMuscles(_ muscles: [String]) -> Set<String> {
@@ -867,27 +960,5 @@ class WorkoutViewModel: ObservableObject {
 
     private func signature(for exercises: [TemplateExerciseDetail]) -> String {
         exercises.map { $0.exercise.id.uuidString }.joined(separator: "|")
-    }
-
-    private func parseSignature(_ signature: String) -> [UUID] {
-        signature
-            .split(separator: "|")
-            .compactMap { UUID(uuidString: String($0)) }
-    }
-
-    private func variationHistoryKey(templateId: UUID) -> String {
-        "\(variationHistoryKeyPrefix)\(templateId.uuidString)"
-    }
-
-    private func loadVariationHistory(templateId: UUID) -> [String] {
-        UserDefaults.standard.stringArray(forKey: variationHistoryKey(templateId: templateId)) ?? []
-    }
-
-    private func saveVariationSignature(_ signature: String, templateId: UUID) {
-        var history = loadVariationHistory(templateId: templateId)
-        history.removeAll { $0 == signature }
-        history.insert(signature, at: 0)
-        history = Array(history.prefix(variationHistoryDepth))
-        UserDefaults.standard.set(history, forKey: variationHistoryKey(templateId: templateId))
     }
 }

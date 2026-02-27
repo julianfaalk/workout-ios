@@ -859,6 +859,27 @@ final class DatabaseService {
         }
     }
 
+    func fetchLastLoggedValues(exerciseId: UUID) throws -> (reps: Int?, weight: Double?) {
+        try dbQueue.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT reps, weight
+                    FROM session_sets
+                    WHERE exercise_id = ?
+                      AND (reps IS NOT NULL OR weight IS NOT NULL)
+                    ORDER BY completed_at DESC
+                    LIMIT 1
+                """,
+                arguments: [exerciseId]
+            )
+
+            let reps: Int? = row?["reps"]
+            let weight: Double? = row?["weight"]
+            return (reps, weight)
+        }
+    }
+
     // MARK: - Cardio Session Operations
 
     func saveCardioSession(_ cardio: CardioSession) throws {

@@ -15,6 +15,7 @@ struct ScheduleView: View {
                         ForEach(viewModel.getOrderedDays()) { day in
                             ScheduleDayCard(
                                 day: day,
+                                displayDate: viewModel.dateForCurrentWeek(dayOfWeek: day.dayOfWeek),
                                 onTap: {
                                     if day.template != nil {
                                         selectedDayForDetail = day
@@ -59,25 +60,13 @@ struct ScheduleView: View {
 
 struct ScheduleDayCard: View {
     let day: ScheduleDay
+    let displayDate: Date
     let onTap: () -> Void
     let onEdit: () -> Void
 
     var isToday: Bool {
         let today = Calendar.current.component(.weekday, from: Date()) - 1
         return day.dayOfWeek == today
-    }
-
-    var nextDate: Date {
-        let calendar = Calendar.current
-        let today = Date()
-        let todayWeekday = calendar.component(.weekday, from: today) - 1 // 0 = Sunday
-
-        var daysToAdd = day.dayOfWeek - todayWeekday
-        if daysToAdd < 0 {
-            daysToAdd += 7
-        }
-
-        return calendar.date(byAdding: .day, value: daysToAdd, to: today) ?? today
     }
 
     var body: some View {
@@ -99,7 +88,7 @@ struct ScheduleDayCard: View {
                         }
                     }
 
-                    Text(nextDate, style: .date)
+                    Text(displayDate, style: .date)
                         .font(.caption)
                         .foregroundColor(.secondary)
 

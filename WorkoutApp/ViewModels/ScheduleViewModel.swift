@@ -95,4 +95,28 @@ class ScheduleViewModel: ObservableObject {
         }
         return ordered
     }
+
+    func dateForCurrentWeek(dayOfWeek: Int, referenceDate: Date = Date()) -> Date {
+        let calendar = Calendar.current
+        let startOfWeek = startDateOfCurrentWeek(referenceDate: referenceDate)
+        var offset = dayOfWeek - weekStartsOn
+        if offset < 0 {
+            offset += 7
+        }
+
+        return calendar.date(byAdding: .day, value: offset, to: startOfWeek) ?? referenceDate
+    }
+
+    private func startDateOfCurrentWeek(referenceDate: Date) -> Date {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: referenceDate)
+        let todayWeekday = calendar.component(.weekday, from: today) - 1 // 0...6
+
+        var delta = todayWeekday - weekStartsOn
+        if delta < 0 {
+            delta += 7
+        }
+
+        return calendar.date(byAdding: .day, value: -delta, to: today) ?? today
+    }
 }
