@@ -209,6 +209,28 @@ final class WorkoutPlannerTests: XCTestCase {
     }
 
     @MainActor
+    func testTodayViewModelLoadsCompletedSessionsForToday() async throws {
+        let template = try template(named: "Push (Brust, Trizeps, vordere Schulter)")
+        let date = makeDate(year: 2026, month: 3, day: 17, hour: 15)
+
+        try db.saveSession(
+            WorkoutSession(
+                templateId: template.id,
+                startedAt: date,
+                completedAt: date.addingTimeInterval(2700),
+                duration: 2700
+            )
+        )
+
+        let viewModel = TodayViewModel(db: db, referenceDate: date)
+        await viewModel.refresh()
+
+        XCTAssertTrue(viewModel.hasCompletedWorkoutToday)
+        XCTAssertEqual(viewModel.todayCompletedSessions.count, 1)
+        XCTAssertEqual(viewModel.todayCompletedSessions.first?.template?.id, template.id)
+    }
+
+    @MainActor
     func testShuffleIsBlockedAfterFirstLoggedSet() async throws {
         let template = try template(named: "Push (Brust, Trizeps, vordere Schulter)")
         let build = try generator.buildPlan(
@@ -232,6 +254,72 @@ final class WorkoutPlannerTests: XCTestCase {
 
         let message = await viewModel.shuffleCurrentWorkout()
         XCTAssertEqual(message, "Shuffle is only available before you log the first set.")
+    }
+
+    @MainActor
+    func testPreviewPlanLoadsFutureScheduledWorkoutWithoutPersistingIt() async throws {
+        let template = try template(named: "Push (Brust, Trizeps, vordere Schulter)")
+        let scheduleDay = try scheduledDay(for: template.id)
+        let referenceDate = makeDate(year: 2026, month: 3, day: 17, hour: 9)
+        let futureDate = nextDate(after: referenceDate, matchingScheduleDay: scheduleDay.dayOfWeek)
+
+        XCTAssertNil(try db.fetchWorkoutDayPlan(date: futureDate, templateId: template.id))
+
+        let viewModel = TodayViewModel(db: db, referenceDate: referenceDate)
+        await viewModel.refresh()
+
+        let preview = await viewModel.previewPlan(for: futureDate)
+
+        XCTAssertEqual(preview?.plan.template.id, template.id)
+        XCTAssertFalse(preview?.isPersistedPlan ?? true)
+        XCTAssertNil(try db.fetchWorkoutDayPlan(date: futureDate, templateId: template.id))
+    }
+
+    @MainActor
+    func testBalancedRotationReusesPreviousPlanForNextTemplateSession() async throws {
+        let template = try template(named: "Push (Brust, Trizeps, vordere Schulter)")
+        let scheduleDay = try scheduledDay(for: template.id)
+        let referenceDate = makeDate(year: 2026, month: 3, day: 17, hour: 9)
+        let nextScheduledDate = nextDate(after: referenceDate, matchingScheduleDay: scheduleDay.dayOfWeek)
+        let previousScheduledDate = Calendar.current.date(byAdding: .day, value: -7, to: nextScheduledDate) ?? nextScheduledDate
+
+        var settings = try db.fetchSettings()
+        settings.rotationStyleValue = .balanced
+        try db.saveSettings(settings)
+
+        let previousBuild = try generator.buildPlan(
+            template: template,
+            baseExercises: try db.fetchTemplateExercises(templateId: template.id),
+            allExercises: try db.fetchAllExercises(),
+            previousPlan: nil,
+            shuffleSeed: 0
+        )
+        let savedPlan = try db.saveWorkoutDayPlan(
+            date: previousScheduledDate,
+            template: template,
+            exercises: previousBuild.exercises,
+            shuffleCount: 0
+        )
+        try db.saveSession(
+            WorkoutSession(
+                templateId: template.id,
+                dayPlanId: savedPlan.plan.id,
+                startedAt: previousScheduledDate.addingTimeInterval(60 * 60 * 12),
+                completedAt: previousScheduledDate.addingTimeInterval(60 * 60 * 13),
+                duration: 3600
+            )
+        )
+
+        let viewModel = TodayViewModel(db: db, referenceDate: referenceDate)
+        await viewModel.refresh()
+
+        let preview = await viewModel.previewPlan(for: nextScheduledDate)
+
+        XCTAssertTrue(preview?.isReusedBlock ?? false)
+        XCTAssertEqual(
+            preview?.plan.exercises.map(\.exercise.id),
+            savedPlan.exercises.map(\.exercise.id)
+        )
     }
 
     private func template(named name: String) throws -> WorkoutTemplate {
@@ -261,5 +349,23 @@ final class WorkoutPlannerTests: XCTestCase {
         components.hour = hour
         components.minute = 0
         return components.date ?? Date()
+    }
+
+    private func scheduledDay(for templateId: UUID) throws -> ScheduleDay {
+        guard let scheduleDay = try db.fetchScheduleWithTemplates().first(where: { $0.template?.id == templateId }) else {
+            throw XCTSkip("Missing seeded schedule for template \(templateId)")
+        }
+        return scheduleDay
+    }
+
+    private func nextDate(after start: Date, matchingScheduleDay scheduleDay: Int) -> Date {
+        let calendar = Calendar.current
+        var cursor = calendar.startOfDay(for: start)
+
+        while (calendar.component(.weekday, from: cursor) - 1) != scheduleDay {
+            cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? cursor
+        }
+
+        return cursor
     }
 }

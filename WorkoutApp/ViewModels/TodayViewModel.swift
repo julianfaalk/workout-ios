@@ -1,13 +1,108 @@
 import Foundation
 import SwiftUI
 
+struct PlannedWorkoutPreview: Identifiable {
+    var date: Date
+    var schedule: ScheduleDay
+    var plan: WorkoutDayPlanWithExercises
+    var isPersistedPlan: Bool
+    var isReusedBlock: Bool
+    var goalFocus: TrainingGoalFocus
+    var rotationStyle: WorkoutRotationStyle
+    var preferredSessionLengthMinutes: Int
+    var completedTemplateSessions: Int
+
+    var id: Date { date }
+
+    var anchorExercises: [WorkoutDayPlanExerciseDetail] {
+        plan.exercises.filter(\.planExercise.isAnchor)
+    }
+
+    var accessoryExercises: [WorkoutDayPlanExerciseDetail] {
+        plan.exercises.filter { !$0.planExercise.isAnchor }
+    }
+
+    var estimatedDurationMinutes: Int {
+        max(35, preferredSessionLengthMinutes + max(0, plan.exercises.count - 5) * 4)
+    }
+}
+
+private struct ResolvedWorkoutDayPlan {
+    let plan: WorkoutDayPlanWithExercises
+    let isPersisted: Bool
+    let isReusedBlock: Bool
+}
+
 struct CalendarMonthDay: Identifiable, Hashable {
     var date: Date
     var isInDisplayedMonth: Bool
     var isToday: Bool
     var summary: WorkoutCalendarDaySummary?
+    var isScheduledWorkout: Bool
+    var isRestDay: Bool
+    var isMissedWorkout: Bool
 
     var id: Date { date }
+
+    var isPlannedWorkout: Bool {
+        isScheduledWorkout && summary == nil && !isMissedWorkout
+    }
+
+    var hasAnyState: Bool {
+        summary != nil || isScheduledWorkout || isRestDay || isMissedWorkout
+    }
+}
+
+struct TodayMonthSummarySnapshot: Hashable {
+    let monthTitle: String
+    let activeDays: Int
+    let totalWorkouts: Int
+    let expectedWorkouts: Int
+    let missedWorkouts: Int
+    let remainingScheduledWorkouts: Int
+
+    var consistency: Double {
+        guard expectedWorkouts > 0 else { return 0 }
+        return min(1, Double(activeDays) / Double(expectedWorkouts))
+    }
+}
+
+struct TodayMomentumSnapshot: Hashable {
+    let streakDays: Int
+    let weeklySessions: Int
+    let monthlyActiveDays: Int
+    let monthlyWorkoutCount: Int
+    let monthlyConsistency: Double
+    let todayXP: Int
+
+    var score: Int {
+        (monthlyActiveDays * 120) + (monthlyWorkoutCount * 40) + (streakDays * 30) + todayXP
+    }
+
+    var level: Int {
+        max(1, (score / 300) + 1)
+    }
+
+    var progressToNextLevel: Double {
+        Double(score % 300) / 300
+    }
+
+    var nextLevelScore: Int {
+        level * 300
+    }
+
+    var rankTitle: String {
+        switch level {
+        case 1...2:
+            return "Starter"
+        case 3...4:
+            return "Locked In"
+        case 5...7:
+            return "On Fire"
+        default:
+            return "Elite"
+        }
+    }
 }
 
 @MainActor
@@ -17,6 +112,7 @@ final class TodayViewModel: ObservableObject {
     @Published var weekStartsOn: Int = 1
     @Published var monthSummaries: [Date: WorkoutCalendarDaySummary] = [:]
     @Published var todayPlan: WorkoutDayPlanWithExercises?
+    @Published var todayCompletedSessions: [SessionWithDetails] = []
     @Published var todayShuffleUnavailableReason: String?
     @Published var selectedDaySessions: [SessionWithDetails] = []
     @Published var isLoading = false
@@ -25,6 +121,9 @@ final class TodayViewModel: ObservableObject {
     private let db: DatabaseService
     private let planGenerator = WorkoutPlanGenerator()
     private let referenceToday: Date
+    private var appSettings = AppSettings()
+    private var scheduleDays: [ScheduleDay] = []
+    private var recentCompletedSessions: [SessionWithDetails] = []
 
     init(db: DatabaseService = .shared, referenceDate: Date = Date()) {
         self.db = db
@@ -56,6 +155,75 @@ final class TodayViewModel: ObservableObject {
         buildMonthGrid(for: displayedMonth)
     }
 
+    var hasCompletedWorkoutToday: Bool {
+        !todayCompletedSessions.isEmpty
+    }
+
+    var displayedMonthSummary: TodayMonthSummarySnapshot {
+        let activeDays = monthSummaries.count
+        let totalWorkouts = monthSummaries.values.reduce(0) { $0 + $1.workoutCount }
+        let breakdown = workoutExpectationBreakdown(in: displayedMonth)
+
+        return TodayMonthSummarySnapshot(
+            monthTitle: displayedMonthTitle,
+            activeDays: activeDays,
+            totalWorkouts: totalWorkouts,
+            expectedWorkouts: breakdown.expected,
+            missedWorkouts: breakdown.missed,
+            remainingScheduledWorkouts: breakdown.remaining
+        )
+    }
+
+    var todayMomentumSnapshot: TodayMomentumSnapshot {
+        let calendar = Calendar.current
+        let monthStart = Self.startOfMonth(for: today)
+        let weekInterval = calendar.dateInterval(of: .weekOfYear, for: today)
+        let uniqueMonthDays = Set(
+            recentCompletedSessions
+                .map { calendar.startOfDay(for: $0.session.startedAt) }
+                .filter { $0 >= monthStart && $0 <= today }
+        )
+        let monthlySessions = recentCompletedSessions.filter {
+            $0.session.startedAt >= monthStart && $0.session.startedAt <= today
+        }
+        let weeklySessions = recentCompletedSessions.filter { session in
+            guard let weekInterval else { return false }
+            return weekInterval.contains(session.session.startedAt)
+        }.count
+        let monthToDateExpected = expectedWorkoutCount(in: today, upTo: today)
+        let todayXP = todayCompletedSessions.reduce(0) { total, session in
+            total + (session.totalSets * 12) + (session.exercisesCompleted * 18) + max(24, (session.session.duration ?? 0) / 60)
+        }
+
+        return TodayMomentumSnapshot(
+            streakDays: currentStreakDays,
+            weeklySessions: weeklySessions,
+            monthlyActiveDays: uniqueMonthDays.count,
+            monthlyWorkoutCount: monthlySessions.count,
+            monthlyConsistency: monthToDateExpected > 0
+                ? min(1, Double(uniqueMonthDays.count) / Double(monthToDateExpected))
+                : 0,
+            todayXP: todayXP
+        )
+    }
+
+    var currentStreakDays: Int {
+        let calendar = Calendar.current
+        let completedDays = Set(recentCompletedSessions.map { calendar.startOfDay(for: $0.session.startedAt) })
+        guard !completedDays.isEmpty else { return 0 }
+
+        var streak = 0
+        var cursor = hasCompletedWorkoutToday ? today : (calendar.date(byAdding: .day, value: -1, to: today) ?? today)
+
+        while completedDays.contains(cursor) {
+            streak += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+
+        return streak
+    }
+
     func refresh() async {
         isLoading = true
         errorMessage = nil
@@ -63,6 +231,8 @@ final class TodayViewModel: ObservableObject {
         do {
             try await loadSettingsAndSchedule()
             try await loadMonthSummaries()
+            try await loadRecentCompletedSessions()
+            try await loadTodayCompletedSessions()
             try await loadTodayPlan()
         } catch {
             errorMessage = error.localizedDescription
@@ -96,6 +266,42 @@ final class TodayViewModel: ObservableObject {
             selectedDaySessions = try db.fetchCompletedSessions(on: date)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func previewPlan(for date: Date) async -> PlannedWorkoutPreview? {
+        do {
+            if scheduleDays.isEmpty {
+                try await loadSettingsAndSchedule()
+            }
+
+            let normalized = Calendar.current.startOfDay(for: date)
+            guard let scheduledDay = scheduleDay(for: normalized),
+                  scheduledDay.isRestDay == false,
+                  scheduledDay.template != nil else {
+                return nil
+            }
+
+            let resolved = try resolveDayPlan(for: normalized, schedule: scheduledDay, persistIfNeeded: false)
+            let completedTemplateSessions = try db.fetchCompletedSessionCount(
+                templateId: resolved.plan.template.id,
+                before: normalized
+            )
+
+            return PlannedWorkoutPreview(
+                date: normalized,
+                schedule: scheduledDay,
+                plan: resolved.plan,
+                isPersistedPlan: resolved.isPersisted,
+                isReusedBlock: resolved.isReusedBlock,
+                goalFocus: appSettings.goalFocusValue,
+                rotationStyle: appSettings.rotationStyleValue,
+                preferredSessionLengthMinutes: appSettings.preferredSessionLengthMinutes,
+                completedTemplateSessions: completedTemplateSessions
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -146,7 +352,9 @@ final class TodayViewModel: ObservableObject {
         let settings = try db.fetchSettings()
         let scheduleDays = try db.fetchScheduleWithTemplates()
 
+        appSettings = settings
         weekStartsOn = settings.weekStartsOn
+        self.scheduleDays = scheduleDays
         let todayWeekday = Calendar.current.component(.weekday, from: referenceToday) - 1
         todaySchedule = scheduleDays.first { $0.dayOfWeek == todayWeekday }
     }
@@ -156,35 +364,22 @@ final class TodayViewModel: ObservableObject {
         monthSummaries = Dictionary(uniqueKeysWithValues: summaries.map { ($0.date, $0) })
     }
 
+    private func loadTodayCompletedSessions() async throws {
+        todayCompletedSessions = try db.fetchCompletedSessions(on: today)
+    }
+
+    private func loadRecentCompletedSessions() async throws {
+        recentCompletedSessions = try db.fetchRecentSessions(limit: 90)
+    }
+
     private func loadTodayPlan() async throws {
-        guard let template = todaySchedule?.template, todaySchedule?.isRestDay == false else {
+        guard let todaySchedule, todaySchedule.template != nil, todaySchedule.isRestDay == false else {
             todayPlan = nil
             todayShuffleUnavailableReason = nil
             return
         }
 
-        if let existing = try db.fetchWorkoutDayPlan(date: today, templateId: template.id) {
-            todayPlan = existing
-        } else {
-            let baseExercises = try db.fetchTemplateExercises(templateId: template.id)
-            let allExercises = try db.fetchAllExercises()
-            let previousPlan = try db.fetchLatestPlanSnapshot(templateId: template.id, before: today)
-                ?? db.fetchLatestCompletedSessionSnapshot(templateId: template.id, before: today)
-            let build = try planGenerator.buildPlan(
-                template: template,
-                baseExercises: baseExercises,
-                allExercises: allExercises,
-                previousPlan: previousPlan,
-                shuffleSeed: 0
-            )
-
-            todayPlan = try db.saveWorkoutDayPlan(
-                date: today,
-                template: template,
-                exercises: build.exercises,
-                shuffleCount: 0
-            )
-        }
+        todayPlan = try resolveDayPlan(for: today, schedule: todaySchedule, persistIfNeeded: true).plan
 
         try await refreshShuffleAvailability()
     }
@@ -209,6 +404,131 @@ final class TodayViewModel: ObservableObject {
         } catch {
             todayShuffleUnavailableReason = error.localizedDescription
         }
+    }
+
+    private func resolveDayPlan(
+        for date: Date,
+        schedule: ScheduleDay,
+        persistIfNeeded: Bool
+    ) throws -> ResolvedWorkoutDayPlan {
+        guard let template = schedule.template, schedule.isRestDay == false else {
+            throw NSError(
+                domain: "TodayViewModel",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "No workout template is scheduled for this day."]
+            )
+        }
+
+        let normalizedDate = Calendar.current.startOfDay(for: date)
+        if let existing = try db.fetchWorkoutDayPlan(date: normalizedDate, templateId: template.id) {
+            return ResolvedWorkoutDayPlan(plan: existing, isPersisted: true, isReusedBlock: false)
+        }
+
+        let rotationStyle = appSettings.rotationStyleValue
+        let completedTemplateSessions = try db.fetchCompletedSessionCount(templateId: template.id, before: normalizedDate)
+
+        if rotationStyle.cadenceSessions > 1,
+           completedTemplateSessions > 0,
+           completedTemplateSessions % rotationStyle.cadenceSessions != 0,
+           let latestPlan = try db.fetchLatestWorkoutDayPlan(templateId: template.id, before: normalizedDate) {
+            let reusedPlan = try materializeDayPlan(
+                date: normalizedDate,
+                template: template,
+                drafts: planDrafts(from: latestPlan),
+                persistIfNeeded: persistIfNeeded,
+                shuffleCount: 0
+            )
+            return ResolvedWorkoutDayPlan(plan: reusedPlan, isPersisted: persistIfNeeded, isReusedBlock: true)
+        }
+
+        let baseExercises = try db.fetchTemplateExercises(templateId: template.id)
+        let allExercises = try db.fetchAllExercises()
+        let previousPlan = try db.fetchLatestPlanSnapshot(templateId: template.id, before: normalizedDate)
+            ?? db.fetchLatestCompletedSessionSnapshot(templateId: template.id, before: normalizedDate)
+        let build = try planGenerator.buildPlan(
+            template: template,
+            baseExercises: baseExercises,
+            allExercises: allExercises,
+            previousPlan: previousPlan,
+            shuffleSeed: rotationSeed(
+                completedSessionCount: completedTemplateSessions,
+                style: rotationStyle
+            )
+        )
+
+        let plan = try materializeDayPlan(
+            date: normalizedDate,
+            template: template,
+            drafts: build.exercises,
+            persistIfNeeded: persistIfNeeded,
+            shuffleCount: 0
+        )
+
+        return ResolvedWorkoutDayPlan(plan: plan, isPersisted: persistIfNeeded, isReusedBlock: false)
+    }
+
+    private func materializeDayPlan(
+        date: Date,
+        template: WorkoutTemplate,
+        drafts: [WorkoutPlanExerciseDraft],
+        persistIfNeeded: Bool,
+        shuffleCount: Int
+    ) throws -> WorkoutDayPlanWithExercises {
+        if persistIfNeeded {
+            return try db.saveWorkoutDayPlan(
+                date: date,
+                template: template,
+                exercises: drafts,
+                shuffleCount: shuffleCount
+            )
+        }
+
+        let plan = WorkoutDayPlan(
+            date: Calendar.current.startOfDay(for: date),
+            templateId: template.id,
+            shuffleCount: shuffleCount
+        )
+
+        let exercises = drafts
+            .sorted(by: { $0.sortOrder < $1.sortOrder })
+            .map { draft in
+                WorkoutDayPlanExerciseDetail(
+                    planExercise: WorkoutDayPlanExercise(
+                        planId: plan.id,
+                        exerciseId: draft.exercise.id,
+                        sortOrder: draft.sortOrder,
+                        targetSets: draft.targetSets,
+                        targetReps: draft.targetReps,
+                        targetDuration: draft.targetDuration,
+                        targetWeight: draft.targetWeight,
+                        isAnchor: draft.isAnchor
+                    ),
+                    exercise: draft.exercise
+                )
+            }
+
+        return WorkoutDayPlanWithExercises(plan: plan, template: template, exercises: exercises)
+    }
+
+    private func planDrafts(from dayPlan: WorkoutDayPlanWithExercises) -> [WorkoutPlanExerciseDraft] {
+        dayPlan.exercises.map { detail in
+            WorkoutPlanExerciseDraft(
+                exercise: detail.exercise,
+                sortOrder: detail.planExercise.sortOrder,
+                targetSets: detail.planExercise.targetSets,
+                targetReps: detail.planExercise.targetReps,
+                targetDuration: detail.planExercise.targetDuration,
+                targetWeight: detail.planExercise.targetWeight,
+                isAnchor: detail.planExercise.isAnchor
+            )
+        }
+    }
+
+    private func rotationSeed(
+        completedSessionCount: Int,
+        style: WorkoutRotationStyle
+    ) -> Int {
+        completedSessionCount / max(1, style.cadenceSessions)
     }
 
     private func buildMonthGrid(for month: Date) -> [CalendarMonthDay] {
@@ -245,12 +565,25 @@ final class TodayViewModel: ObservableObject {
 
     private func calendarDay(for date: Date, isInDisplayedMonth: Bool) -> CalendarMonthDay {
         let normalized = Calendar.current.startOfDay(for: date)
+        let scheduledDay = scheduleDay(for: normalized)
+        let isScheduledWorkout = scheduledDay?.isRestDay == false && scheduledDay?.template != nil
+        let isRestDay = scheduledDay?.isRestDay == true
+        let hasCompletedWorkout = monthSummaries[normalized] != nil
+
         return CalendarMonthDay(
             date: normalized,
             isInDisplayedMonth: isInDisplayedMonth,
             isToday: Calendar.current.isDate(normalized, inSameDayAs: referenceToday),
-            summary: monthSummaries[normalized]
+            summary: monthSummaries[normalized],
+            isScheduledWorkout: isScheduledWorkout,
+            isRestDay: isRestDay,
+            isMissedWorkout: isScheduledWorkout && normalized < today && !hasCompletedWorkout
         )
+    }
+
+    private func scheduleDay(for date: Date) -> ScheduleDay? {
+        let weekday = Calendar.current.component(.weekday, from: date) - 1
+        return scheduleDays.first { $0.dayOfWeek == weekday }
     }
 
     private func planSnapshots(from dayPlan: WorkoutDayPlanWithExercises) -> [WorkoutPlanExerciseSnapshot] {
@@ -261,6 +594,68 @@ final class TodayViewModel: ObservableObject {
                 isAnchor: $0.planExercise.isAnchor
             )
         }
+    }
+
+    private func expectedWorkoutCount(in month: Date, upTo limitDate: Date?) -> Int {
+        guard !scheduleDays.isEmpty else { return 0 }
+
+        let calendar = Calendar.current
+        let monthStart = Self.startOfMonth(for: month)
+        let monthEndBase = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) ?? monthStart
+        let monthEnd = limitDate.map { min(calendar.startOfDay(for: $0), monthEndBase) } ?? monthEndBase
+
+        guard monthEnd >= monthStart else { return 0 }
+
+        var count = 0
+        var cursor = monthStart
+
+        while cursor <= monthEnd {
+            let weekday = calendar.component(.weekday, from: cursor) - 1
+            if let scheduledDay = scheduleDays.first(where: { $0.dayOfWeek == weekday }),
+               scheduledDay.isRestDay == false,
+               scheduledDay.template != nil {
+                count += 1
+            }
+
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = nextDay
+        }
+
+        return count
+    }
+
+    private func workoutExpectationBreakdown(in month: Date) -> (expected: Int, missed: Int, remaining: Int) {
+        guard !scheduleDays.isEmpty else { return (0, 0, 0) }
+
+        let calendar = Calendar.current
+        let monthStart = Self.startOfMonth(for: month)
+        let monthEnd = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) ?? monthStart
+        var expected = 0
+        var missed = 0
+        var remaining = 0
+        var cursor = monthStart
+
+        while cursor <= monthEnd {
+            let normalized = calendar.startOfDay(for: cursor)
+            let scheduledDay = scheduleDay(for: normalized)
+            let isScheduledWorkout = scheduledDay?.isRestDay == false && scheduledDay?.template != nil
+            let hasCompletedWorkout = monthSummaries[normalized] != nil
+
+            if isScheduledWorkout {
+                expected += 1
+
+                if normalized < today && !hasCompletedWorkout {
+                    missed += 1
+                } else if normalized >= today && !hasCompletedWorkout {
+                    remaining += 1
+                }
+            }
+
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: normalized) else { break }
+            cursor = nextDay
+        }
+
+        return (expected, missed, remaining)
     }
 
     private static func startOfMonth(for date: Date) -> Date {

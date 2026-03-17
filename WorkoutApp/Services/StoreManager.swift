@@ -132,6 +132,10 @@ final class StoreManager: ObservableObject {
         products.first { $0.id.contains("yearly") }
     }
 
+    var lifetimeProduct: Product? {
+        products.first { $0.id.contains("lifetime") }
+    }
+
     var yearlySavingsPercent: Int {
         guard let monthlyProduct, let yearlyProduct else { return 0 }
         let monthlyAnnualPrice = monthlyProduct.price * 12
@@ -143,4 +147,3 @@ final class StoreManager: ObservableObject {
 enum StoreError: Error {
     case unverified
 }
-

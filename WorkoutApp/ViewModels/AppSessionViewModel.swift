@@ -17,6 +17,7 @@ final class AppSessionViewModel: ObservableObject {
 
     let authService: WorkoutAuthService
     private let api = WorkoutAPIService.shared
+    private let db = DatabaseService.shared
     private let snapshotBuilder = WorkoutSnapshotBuilder()
 
     init(authService: WorkoutAuthService? = nil) {
@@ -53,11 +54,37 @@ final class AppSessionViewModel: ObservableObject {
         await syncSnapshot()
     }
 
-    func completeOnboarding(displayName: String, goal: String, experienceLevel: String) async {
+    func completeOnboarding(
+        displayName: String,
+        goal: String,
+        experienceLevel: String,
+        localSettings: AppSettings? = nil
+    ) async {
         let trimmedDisplayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDisplayName.isEmpty else {
             errorMessage = "Bitte gib einen Namen fuer dein Profil ein."
             return
+        }
+
+        if var localSettings {
+            do {
+                localSettings.trainingSetupCompleted = true
+                try db.saveSettings(localSettings)
+
+                if localSettings.workoutReminderEnabled {
+                    let schedule = try db.fetchScheduleWithTemplates()
+                    await NotificationService.shared.scheduleWorkoutReminders(
+                        for: schedule,
+                        at: localSettings.workoutReminderTime,
+                        goalFocus: localSettings.goalFocusValue
+                    )
+                } else {
+                    NotificationService.shared.cancelWorkoutReminders()
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
         }
 
         let profile = WorkoutProfile(

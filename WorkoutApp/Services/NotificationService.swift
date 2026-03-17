@@ -5,6 +5,8 @@ import UIKit
 final class NotificationService {
     static let shared = NotificationService()
 
+    private let apnsTokenKey = "workout.push.apnsToken"
+
     private init() { }
 
     // MARK: - Permission
@@ -13,6 +15,11 @@ final class NotificationService {
         let center = UNUserNotificationCenter.current()
         do {
             let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+            if granted {
+                await MainActor.run {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
             return granted
         } catch {
             print("Notification permission error: \(error)")
@@ -26,9 +33,27 @@ final class NotificationService {
         return settings.authorizationStatus == .authorized
     }
 
+    func handleRemoteNotificationDeviceToken(_ tokenData: Data) {
+        let token = tokenData.map { String(format: "%02.2hhx", $0) }.joined()
+        UserDefaults.standard.set(token, forKey: apnsTokenKey)
+        print("APNs token stored: \(token)")
+    }
+
+    func handleRemoteNotificationRegistrationFailure(_ error: Error) {
+        print("APNs registration failed: \(error.localizedDescription)")
+    }
+
+    var currentAPNsToken: String? {
+        UserDefaults.standard.string(forKey: apnsTokenKey)
+    }
+
     // MARK: - Workout Reminders
 
-    func scheduleWorkoutReminders(for schedule: [ScheduleDay], at time: Date) async {
+    func scheduleWorkoutReminders(
+        for schedule: [ScheduleDay],
+        at time: Date,
+        goalFocus: TrainingGoalFocus? = nil
+    ) async {
         let center = UNUserNotificationCenter.current()
 
         // Cancel existing workout reminders
@@ -40,9 +65,10 @@ final class NotificationService {
             guard let template = day.template else { continue }
 
             let content = UNMutableNotificationContent()
-            content.title = "Time for \(template.name)!"
-            content.body = "Your scheduled workout is waiting."
+            content.title = reminderTitle(for: template, goalFocus: goalFocus)
+            content.body = reminderBody(for: day, goalFocus: goalFocus)
             content.sound = .default
+            content.threadIdentifier = "workout-reminders"
 
             var dateComponents = Calendar.current.dateComponents([.hour, .minute], from: time)
             dateComponents.weekday = day.dayOfWeek + 1 // 1-indexed for UNCalendarNotificationTrigger
@@ -66,6 +92,32 @@ final class NotificationService {
         let center = UNUserNotificationCenter.current()
         let identifiers = (0..<7).map { "workout_reminder_\($0)" }
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
+    private func reminderTitle(for template: WorkoutTemplate, goalFocus: TrainingGoalFocus?) -> String {
+        switch goalFocus {
+        case .strength:
+            return "Lift heavy: \(template.name)"
+        case .recomposition:
+            return "Stay lean with \(template.name)"
+        case .athletic:
+            return "Performance block: \(template.name)"
+        case .hypertrophy, .none:
+            return "Time to grow: \(template.name)"
+        }
+    }
+
+    private func reminderBody(for day: ScheduleDay, goalFocus: TrainingGoalFocus?) -> String {
+        switch goalFocus {
+        case .strength:
+            return "\(day.dayName) is locked in. Hit your anchors and move the numbers."
+        case .recomposition:
+            return "\(day.dayName) is on deck. Keep the streak alive and stay sharp."
+        case .athletic:
+            return "\(day.dayName) is ready. Train explosive, controlled and consistent."
+        case .hypertrophy, .none:
+            return "\(day.dayName) is ready. Chase clean reps, volume and momentum."
+        }
     }
 
     // MARK: - Rest Timer

@@ -9,6 +9,7 @@ enum AppConfig {
     static let premiumProductIDs = [
         "com.julianfalk.workoutapp.premium.monthly",
         "com.julianfalk.workoutapp.premium.yearly",
+        "com.julianfalk.workoutapp.premium.lifetime",
     ]
 
     // Fill these once the dedicated Google OAuth client for com.julianfalk.WorkoutApp exists.

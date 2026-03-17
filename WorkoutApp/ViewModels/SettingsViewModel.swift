@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import UserNotifications
 
 @MainActor
 class SettingsViewModel: ObservableObject {
@@ -10,6 +9,7 @@ class SettingsViewModel: ObservableObject {
     @Published var exportMessage: String?
 
     private let db = DatabaseService.shared
+    private let notificationService = NotificationService.shared
 
     init() {
         Task {
@@ -78,54 +78,25 @@ class SettingsViewModel: ObservableObject {
     // MARK: - Notifications
 
     func requestNotificationPermission() async -> Bool {
-        let center = UNUserNotificationCenter.current()
-        do {
-            let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-            return granted
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
+        await notificationService.requestPermission()
     }
 
     private func scheduleWorkoutReminders() async {
-        let center = UNUserNotificationCenter.current()
-
-        // Cancel existing reminders
-        center.removePendingNotificationRequests(withIdentifiers: (0..<7).map { "workout_reminder_\($0)" })
-
         // Get schedule
         do {
             let schedule = try db.fetchScheduleWithTemplates()
-
-            for day in schedule where !day.isRestDay {
-                if let template = day.template {
-                    let content = UNMutableNotificationContent()
-                    content.title = "Time for \(template.name)!"
-                    content.body = "Your scheduled workout is waiting."
-                    content.sound = .default
-
-                    var dateComponents = Calendar.current.dateComponents([.hour, .minute], from: settings.workoutReminderTime)
-                    dateComponents.weekday = day.dayOfWeek + 1 // UNCalendarNotificationTrigger uses 1-indexed weekdays
-
-                    let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-                    let request = UNNotificationRequest(
-                        identifier: "workout_reminder_\(day.dayOfWeek)",
-                        content: content,
-                        trigger: trigger
-                    )
-
-                    try await center.add(request)
-                }
-            }
+            await notificationService.scheduleWorkoutReminders(
+                for: schedule,
+                at: settings.workoutReminderTime,
+                goalFocus: settings.goalFocusValue
+            )
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     private func cancelWorkoutReminders() {
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: (0..<7).map { "workout_reminder_\($0)" })
+        notificationService.cancelWorkoutReminders()
     }
 
     // MARK: - Database

@@ -50,7 +50,15 @@ struct PaywallView: View {
                                 }
                             }
 
-                            if let yearlyProduct = storeManager.yearlyProduct {
+                            if let lifetimeProduct = storeManager.lifetimeProduct {
+                                ProductCard(
+                                    title: "\(lifetimeProduct.displayPrice) einmalig",
+                                    badge: "Lifetime",
+                                    isSelected: selectedProduct?.id == lifetimeProduct.id
+                                ) {
+                                    selectedProduct = lifetimeProduct
+                                }
+                            } else if let yearlyProduct = storeManager.yearlyProduct {
                                 ProductCard(
                                     title: "\(yearlyProduct.displayPrice) / Jahr",
                                     badge: storeManager.yearlySavingsPercent > 0 ? "\(storeManager.yearlySavingsPercent)% sparen" : nil,
@@ -61,7 +69,7 @@ struct PaywallView: View {
                             }
                         } else {
                             ProductCard(title: "4,99 EUR / Monat", badge: nil, isSelected: true) { }
-                            ProductCard(title: "29,99 EUR / Jahr", badge: "Bester Preis", isSelected: false) { }
+                            ProductCard(title: "49,99 EUR einmalig", badge: "Lifetime", isSelected: false) { }
                         }
                     }
 
@@ -95,7 +103,7 @@ struct PaywallView: View {
                     .font(.subheadline.weight(.semibold))
 
                     VStack(spacing: 8) {
-                        Text("Das Abo verlaengert sich automatisch, sofern es nicht rechtzeitig in deinem Apple-ID-Account gekuendigt wird.")
+                        Text("Monatlich verlaengert sich automatisch, solange es nicht rechtzeitig in deinem Apple-ID-Account gekuendigt wird. Lifetime ist ein einmaliger Unlock.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -119,7 +127,7 @@ struct PaywallView: View {
                 }
             }
             .onAppear {
-                selectedProduct = storeManager.yearlyProduct ?? storeManager.monthlyProduct
+                selectedProduct = storeManager.lifetimeProduct ?? storeManager.yearlyProduct ?? storeManager.monthlyProduct
             }
             .onChange(of: storeManager.showSuccess) { _, success in
                 if success {
@@ -220,4 +228,3 @@ private struct ProductCard: View {
         .buttonStyle(.plain)
     }
 }
-

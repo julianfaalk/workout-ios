@@ -194,7 +194,12 @@ final class DatabaseService {
                 ('workoutReminderTime', '07:00'),
                 ('restTimerSound', 'true'),
                 ('restTimerHaptic', 'true'),
-                ('weekStartsOn', '1')
+                ('weekStartsOn', '1'),
+                ('trainingSetupCompleted', 'false'),
+                ('goalFocus', 'hypertrophy'),
+                ('preferredSessionLengthMinutes', '60'),
+                ('targetTrainingDaysPerWeek', '4'),
+                ('rotationStyle', 'balanced')
             """)
         }
 
@@ -914,6 +919,29 @@ final class DatabaseService {
         }
     }
 
+    func fetchLatestWorkoutDayPlan(
+        templateId: UUID,
+        before date: Date? = nil
+    ) throws -> WorkoutDayPlanWithExercises? {
+        try dbQueue.read { db in
+            var request = WorkoutDayPlan
+                .filter(WorkoutDayPlan.Columns.templateId == templateId)
+
+            if let date {
+                request = request.filter(WorkoutDayPlan.Columns.date < Calendar.current.startOfDay(for: date))
+            }
+
+            guard let plan = try request
+                .order(WorkoutDayPlan.Columns.date.desc)
+                .order(WorkoutDayPlan.Columns.updatedAt.desc)
+                .fetchOne(db) else {
+                return nil
+            }
+
+            return try self.buildWorkoutDayPlan(plan: plan, db: db)
+        }
+    }
+
     func saveWorkoutDayPlan(
         date: Date,
         template: WorkoutTemplate,
@@ -1022,6 +1050,23 @@ final class DatabaseService {
             }
 
             return try self.fetchSessionSnapshots(sessionId: session.id, db: db)
+        }
+    }
+
+    func fetchCompletedSessionCount(
+        templateId: UUID,
+        before date: Date? = nil
+    ) throws -> Int {
+        try dbQueue.read { db in
+            var request = WorkoutSession
+                .filter(WorkoutSession.Columns.templateId == templateId)
+                .filter(WorkoutSession.Columns.completedAt != nil)
+
+            if let date {
+                request = request.filter(WorkoutSession.Columns.startedAt < Calendar.current.startOfDay(for: date))
+            }
+
+            return try request.fetchCount(db)
         }
     }
 
@@ -1256,6 +1301,16 @@ final class DatabaseService {
                     settings.restTimerHaptic = entry.value == "true"
                 case AppSettings.weekStartsOnKey:
                     settings.weekStartsOn = Int(entry.value) ?? 1
+                case AppSettings.trainingSetupCompletedKey:
+                    settings.trainingSetupCompleted = entry.value == "true"
+                case AppSettings.goalFocusKey:
+                    settings.goalFocus = entry.value
+                case AppSettings.preferredSessionLengthMinutesKey:
+                    settings.preferredSessionLengthMinutes = Int(entry.value) ?? 60
+                case AppSettings.targetTrainingDaysPerWeekKey:
+                    settings.targetTrainingDaysPerWeek = Int(entry.value) ?? 4
+                case AppSettings.rotationStyleKey:
+                    settings.rotationStyle = entry.value
                 default:
                     break
                 }
@@ -1284,6 +1339,11 @@ final class DatabaseService {
             try SettingEntry(key: AppSettings.restTimerSoundKey, value: settings.restTimerSound ? "true" : "false").save(db)
             try SettingEntry(key: AppSettings.restTimerHapticKey, value: settings.restTimerHaptic ? "true" : "false").save(db)
             try SettingEntry(key: AppSettings.weekStartsOnKey, value: "\(settings.weekStartsOn)").save(db)
+            try SettingEntry(key: AppSettings.trainingSetupCompletedKey, value: settings.trainingSetupCompleted ? "true" : "false").save(db)
+            try SettingEntry(key: AppSettings.goalFocusKey, value: settings.goalFocus).save(db)
+            try SettingEntry(key: AppSettings.preferredSessionLengthMinutesKey, value: "\(settings.preferredSessionLengthMinutes)").save(db)
+            try SettingEntry(key: AppSettings.targetTrainingDaysPerWeekKey, value: "\(settings.targetTrainingDaysPerWeek)").save(db)
+            try SettingEntry(key: AppSettings.rotationStyleKey, value: settings.rotationStyle).save(db)
         }
     }
 

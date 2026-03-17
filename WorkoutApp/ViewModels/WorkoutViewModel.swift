@@ -274,20 +274,40 @@ class WorkoutViewModel: ObservableObject {
             )
         }
 
+        let settings = try db.fetchSettings()
+        let rotationStyle = settings.rotationStyleValue
+        let normalizedDate = Calendar.current.startOfDay(for: date)
+        let completedTemplateSessions = try db.fetchCompletedSessionCount(templateId: templateId, before: normalizedDate)
+
+        if rotationStyle.cadenceSessions > 1,
+           completedTemplateSessions > 0,
+           completedTemplateSessions % rotationStyle.cadenceSessions != 0,
+           let latestPlan = try db.fetchLatestWorkoutDayPlan(templateId: templateId, before: normalizedDate) {
+            return try db.saveWorkoutDayPlan(
+                date: normalizedDate,
+                template: template,
+                exercises: dayPlanDrafts(from: latestPlan),
+                shuffleCount: 0
+            )
+        }
+
         let baseExercises = try db.fetchTemplateExercises(templateId: templateId)
         let allExercises = try db.fetchAllExercises()
-        let previousPlan = try db.fetchLatestPlanSnapshot(templateId: templateId, before: date)
-            ?? db.fetchLatestCompletedSessionSnapshot(templateId: templateId, before: date)
+        let previousPlan = try db.fetchLatestPlanSnapshot(templateId: templateId, before: normalizedDate)
+            ?? db.fetchLatestCompletedSessionSnapshot(templateId: templateId, before: normalizedDate)
         let build = try planGenerator.buildPlan(
             template: template,
             baseExercises: baseExercises,
             allExercises: allExercises,
             previousPlan: previousPlan,
-            shuffleSeed: 0
+            shuffleSeed: rotationSeed(
+                completedSessionCount: completedTemplateSessions,
+                style: rotationStyle
+            )
         )
 
         return try db.saveWorkoutDayPlan(
-            date: date,
+            date: normalizedDate,
             template: template,
             exercises: build.exercises,
             shuffleCount: 0
@@ -1271,6 +1291,27 @@ class WorkoutViewModel: ObservableObject {
 
     private func normalizedMuscles(_ muscles: [String]) -> Set<String> {
         Set(muscles.map { normalizeMuscleName($0) }.filter { !$0.isEmpty })
+    }
+
+    private func dayPlanDrafts(from dayPlan: WorkoutDayPlanWithExercises) -> [WorkoutPlanExerciseDraft] {
+        dayPlan.exercises.map { detail in
+            WorkoutPlanExerciseDraft(
+                exercise: detail.exercise,
+                sortOrder: detail.planExercise.sortOrder,
+                targetSets: detail.planExercise.targetSets,
+                targetReps: detail.planExercise.targetReps,
+                targetDuration: detail.planExercise.targetDuration,
+                targetWeight: detail.planExercise.targetWeight,
+                isAnchor: detail.planExercise.isAnchor
+            )
+        }
+    }
+
+    private func rotationSeed(
+        completedSessionCount: Int,
+        style: WorkoutRotationStyle
+    ) -> Int {
+        completedSessionCount / max(1, style.cadenceSessions)
     }
 
     private func normalizeMuscleName(_ muscle: String) -> String {

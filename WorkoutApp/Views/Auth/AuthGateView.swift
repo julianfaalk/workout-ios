@@ -162,8 +162,16 @@ struct ProfileSetupView: View {
     @State private var displayName = ""
     @State private var goal = ""
     @State private var selectedExperience = "Intermediate"
+    @State private var currentStep = 0
+    @State private var selectedGoalFocus: TrainingGoalFocus = .hypertrophy
+    @State private var selectedRotationStyle: WorkoutRotationStyle = .balanced
+    @State private var preferredSessionLengthMinutes = 60.0
+    @State private var targetTrainingDaysPerWeek = 4.0
+    @State private var workoutReminderEnabled = true
+    @State private var workoutReminderTime = Calendar.current.date(from: DateComponents(hour: 18, minute: 30)) ?? Date()
 
     private let levels = ["Beginner", "Intermediate", "Advanced"]
+    private let db = DatabaseService.shared
 
     var body: some View {
         NavigationStack {
@@ -171,26 +179,134 @@ struct ProfileSetupView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Mach dein Profil startklar")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
-                    Text("Damit die Workout Cloud dein Profil, deinen Streak und deine wichtigsten Trainingskennzahlen sauber sichern kann.")
+                    Text("Wir bauen dir einmal sauber dein Trainings-Setup. Neue Konten bekommen damit direkt Rotation, Reminder und einen klaren Fokus fuer den Start.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                 }
 
-                VStack(spacing: 14) {
-                    LabeledField(title: "Name", text: $displayName, prompt: "Julian")
-                    LabeledField(title: "Trainingsziel", text: $goal, prompt: "Muskelaufbau, Fettverlust, Routine ...")
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Capsule()
+                                .fill(index <= currentStep ? Color.blue : Color.secondary.opacity(0.15))
+                                .frame(height: 8)
+                        }
+                    }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Level")
-                            .font(.subheadline.weight(.semibold))
-                        Picker("Level", selection: $selectedExperience) {
-                            ForEach(levels, id: \.self) { level in
-                                Text(level).tag(level)
+                    Text(stepTitle)
+                        .font(.title3.weight(.bold))
+
+                    Group {
+                        switch currentStep {
+                        case 0:
+                            VStack(spacing: 14) {
+                                LabeledField(title: "Name", text: $displayName, prompt: "Julian")
+                                LabeledField(title: "Trainingsziel", text: $goal, prompt: "Muskelaufbau, Fettverlust, Routine ...")
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Level")
+                                        .font(.subheadline.weight(.semibold))
+                                    Picker("Level", selection: $selectedExperience) {
+                                        ForEach(levels, id: \.self) { level in
+                                            Text(level).tag(level)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                }
+                            }
+                        case 1:
+                            VStack(alignment: .leading, spacing: 18) {
+                                Text("Worauf soll die App optimieren?")
+                                    .font(.subheadline.weight(.semibold))
+
+                                ForEach(TrainingGoalFocus.allCases) { focus in
+                                    Button {
+                                        selectedGoalFocus = focus
+                                    } label: {
+                                        WizardOptionRow(
+                                            emoji: focusEmoji(for: focus),
+                                            title: focus.title,
+                                            subtitle: focus.subtitle,
+                                            isSelected: selectedGoalFocus == focus,
+                                            tint: focusTint(for: focus)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Geplante Session-Laenge")
+                                        .font(.subheadline.weight(.semibold))
+                                    HStack {
+                                        Text("\(Int(preferredSessionLengthMinutes.rounded())) min")
+                                            .font(.headline)
+                                        Spacer()
+                                        Text("Kurz bis fokussiert lang")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Slider(value: $preferredSessionLengthMinutes, in: 35...105, step: 5)
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Trainings-Tage pro Woche")
+                                        .font(.subheadline.weight(.semibold))
+                                    HStack {
+                                        Text("\(Int(targetTrainingDaysPerWeek.rounded())) Tage")
+                                            .font(.headline)
+                                        Spacer()
+                                        Text("Damit Goals und Calendar dazu passen")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Slider(value: $targetTrainingDaysPerWeek, in: 2...6, step: 1)
+                                }
+                            }
+                        default:
+                            VStack(alignment: .leading, spacing: 18) {
+                                Text("Wie frisch sollen die Uebungen rotieren?")
+                                    .font(.subheadline.weight(.semibold))
+
+                                ForEach(WorkoutRotationStyle.allCases) { style in
+                                    Button {
+                                        selectedRotationStyle = style
+                                    } label: {
+                                        WizardOptionRow(
+                                            emoji: rotationEmoji(for: style),
+                                            title: style.title,
+                                            subtitle: style.subtitle,
+                                            isSelected: selectedRotationStyle == style,
+                                            tint: rotationTint(for: style)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                Toggle(isOn: $workoutReminderEnabled) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Workout-Reminder aktivieren")
+                                            .font(.subheadline.weight(.semibold))
+                                        Text("Schickt dir lokale Notifications fuer deine geplanten Trainingstage.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .toggleStyle(.switch)
+
+                                if workoutReminderEnabled {
+                                    DatePicker(
+                                        "Reminder-Zeit",
+                                        selection: $workoutReminderTime,
+                                        displayedComponents: .hourAndMinute
+                                    )
+                                    .datePickerStyle(.compact)
+                                }
                             }
                         }
-                        .pickerStyle(.segmented)
                     }
                 }
+                .padding(20)
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 
                 if let errorMessage = sessionViewModel.errorMessage {
                     Text(errorMessage)
@@ -200,34 +316,189 @@ struct ProfileSetupView: View {
 
                 Spacer()
 
-                Button {
-                    Task {
-                        await sessionViewModel.completeOnboarding(
-                            displayName: displayName,
-                            goal: goal,
-                            experienceLevel: selectedExperience
-                        )
-                    }
-                } label: {
-                    HStack {
-                        if sessionViewModel.isSyncing {
-                            ProgressView()
-                                .tint(.white)
+                HStack(spacing: 12) {
+                    if currentStep > 0 {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                currentStep -= 1
+                            }
+                        } label: {
+                            Text("Zurueck")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 56)
+                                .foregroundStyle(.primary)
+                                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }
-                        Text(sessionViewModel.isSyncing ? "Profil wird gespeichert ..." : "Weiter zur App")
-                            .font(.headline)
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .foregroundStyle(.white)
-                    .background(Color(red: 0.12, green: 0.44, blue: 0.26), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    Button {
+                        if currentStep < 2 {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                currentStep += 1
+                            }
+                        } else {
+                            Task {
+                                await completeWizard()
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            if sessionViewModel.isSyncing {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text(sessionViewModel.isSyncing ? "Setup wird gespeichert ..." : currentStep < 2 ? "Weiter" : "Weiter zur App")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .foregroundStyle(.white)
+                        .background(Color(red: 0.12, green: 0.44, blue: 0.26), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(24)
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationBarHidden(true)
+            .task {
+                await seedWizardDefaults()
+            }
         }
+    }
+
+    private var stepTitle: String {
+        switch currentStep {
+        case 0:
+            return "Profil"
+        case 1:
+            return "Trainings-Fokus"
+        default:
+            return "Rotation & Reminder"
+        }
+    }
+
+    private func completeWizard() async {
+        var settings = (try? db.fetchSettings()) ?? AppSettings()
+        settings.goalFocusValue = selectedGoalFocus
+        settings.preferredSessionLengthMinutes = Int(preferredSessionLengthMinutes.rounded())
+        settings.targetTrainingDaysPerWeek = Int(targetTrainingDaysPerWeek.rounded())
+        settings.rotationStyleValue = selectedRotationStyle
+        settings.workoutReminderEnabled = workoutReminderEnabled
+        settings.workoutReminderTime = workoutReminderTime
+
+        if workoutReminderEnabled {
+            let granted = await NotificationService.shared.requestPermission()
+            if !granted {
+                settings.workoutReminderEnabled = false
+                sessionViewModel.errorMessage = "Mitteilungen sind aktuell nicht erlaubt. Die App startet trotzdem und du kannst Reminder spaeter in den Einstellungen aktivieren."
+            }
+        }
+
+        await sessionViewModel.completeOnboarding(
+            displayName: displayName,
+            goal: goal,
+            experienceLevel: selectedExperience,
+            localSettings: settings
+        )
+    }
+
+    private func seedWizardDefaults() async {
+        guard let settings = try? db.fetchSettings() else { return }
+        selectedGoalFocus = settings.goalFocusValue
+        selectedRotationStyle = settings.rotationStyleValue
+        preferredSessionLengthMinutes = Double(settings.preferredSessionLengthMinutes)
+        targetTrainingDaysPerWeek = Double(settings.targetTrainingDaysPerWeek)
+        workoutReminderEnabled = settings.workoutReminderEnabled
+        workoutReminderTime = settings.workoutReminderTime
+    }
+
+    private func focusEmoji(for focus: TrainingGoalFocus) -> String {
+        switch focus {
+        case .hypertrophy:
+            return "💪"
+        case .strength:
+            return "🏋️"
+        case .recomposition:
+            return "⚡️"
+        case .athletic:
+            return "🧠"
+        }
+    }
+
+    private func focusTint(for focus: TrainingGoalFocus) -> Color {
+        switch focus {
+        case .hypertrophy:
+            return .green
+        case .strength:
+            return .orange
+        case .recomposition:
+            return .blue
+        case .athletic:
+            return .purple
+        }
+    }
+
+    private func rotationEmoji(for style: WorkoutRotationStyle) -> String {
+        switch style {
+        case .conservative:
+            return "🧱"
+        case .balanced:
+            return "🎯"
+        case .aggressive:
+            return "🌪️"
+        }
+    }
+
+    private func rotationTint(for style: WorkoutRotationStyle) -> Color {
+        switch style {
+        case .conservative:
+            return .green
+        case .balanced:
+            return .blue
+        case .aggressive:
+            return .orange
+        }
+    }
+}
+
+private struct WizardOptionRow: View {
+    let emoji: String
+    let title: String
+    let subtitle: String
+    let isSelected: Bool
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text(emoji)
+                .font(.system(size: 28))
+                .frame(width: 46, height: 46)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(isSelected ? tint : Color.secondary.opacity(0.45))
+        }
+        .padding(14)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(isSelected ? tint.opacity(0.45) : Color.black.opacity(0.05), lineWidth: 1)
+        )
     }
 }
 
@@ -408,4 +679,3 @@ private struct EmailLoginSheet: View {
         }
     }
 }
-
