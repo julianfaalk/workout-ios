@@ -1,0 +1,636 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2F1C565460BBA56D92B377F9 /* AuthGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7878826E393A9DFC13BF1AC0 /* AuthGateView.swift */; };
+		4AC5FB39B1C7099C02C35FB9 /* AppSessionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139B02FA3639AC78110D5580 /* AppSessionViewModel.swift */; };
+		5DCD3910507AF65F7AA317C3 /* PaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D1DF07DEA7E6D6BEB87CC8 /* PaywallView.swift */; };
+		6DE0B4C31C34502552C00603 /* AccountModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D897F452231EBD19321A45DF /* AccountModels.swift */; };
+		772861F77D9003080E0B99A5 /* CloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 960B2F791FC48883A9F5B885 /* CloudService.swift */; };
+		9CCE72BF026CA3FCF826B52B /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72FABF03EB9F7F221315A607 /* AppConfig.swift */; };
+		A10000010001 /* REPSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020001 /* REPSApp.swift */; };
+		A10000010002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020002 /* ContentView.swift */; };
+		A10000010003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000020003 /* Assets.xcassets */; };
+		A10000010004 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020004 /* AppSettings.swift */; };
+		A10000010005 /* CardioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020005 /* CardioSession.swift */; };
+		A10000010006 /* Exercise.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020006 /* Exercise.swift */; };
+		A10000010007 /* Measurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020007 /* Measurement.swift */; };
+		A10000010008 /* PersonalRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020008 /* PersonalRecord.swift */; };
+		A10000010009 /* Schedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020009 /* Schedule.swift */; };
+		A10000010010 /* Template.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020010 /* Template.swift */; };
+		A10000010011 /* WorkoutSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020011 /* WorkoutSession.swift */; };
+		A10000010012 /* DatabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020012 /* DatabaseService.swift */; };
+		A10000010013 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020013 /* NotificationService.swift */; };
+		A10000010014 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020014 /* Extensions.swift */; };
+		A10000010015 /* ExerciseViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020015 /* ExerciseViewModel.swift */; };
+		A10000010016 /* HistoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020016 /* HistoryViewModel.swift */; };
+		A10000010017 /* MeasurementViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020017 /* MeasurementViewModel.swift */; };
+		A10000010018 /* ProgressViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020018 /* ProgressViewModel.swift */; };
+		A10000010019 /* ScheduleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020019 /* ScheduleViewModel.swift */; };
+		A10000010020 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020020 /* SettingsViewModel.swift */; };
+		A10000010021 /* TemplateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020021 /* TemplateViewModel.swift */; };
+		A10000010022 /* WorkoutViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020022 /* WorkoutViewModel.swift */; };
+		A10000010023 /* ExerciseDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020023 /* ExerciseDetailView.swift */; };
+		A10000010024 /* ExerciseFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020024 /* ExerciseFormView.swift */; };
+		A10000010025 /* ExerciseListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020025 /* ExerciseListView.swift */; };
+		A10000010026 /* ExercisePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020026 /* ExercisePickerView.swift */; };
+		A10000010027 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020027 /* HistoryView.swift */; };
+		A10000010028 /* MeasurementDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020028 /* MeasurementDetailView.swift */; };
+		A10000010029 /* MeasurementFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020029 /* MeasurementFormView.swift */; };
+		A10000010030 /* ProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020030 /* ProgressView.swift */; };
+		A10000010031 /* AddExerciseToTemplateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020031 /* AddExerciseToTemplateView.swift */; };
+		A10000010032 /* ScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020032 /* ScheduleView.swift */; };
+		A10000010033 /* TemplateDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020033 /* TemplateDetailView.swift */; };
+		A10000010034 /* TemplateFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020034 /* TemplateFormView.swift */; };
+		A10000010035 /* TemplateListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020035 /* TemplateListView.swift */; };
+		A10000010036 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020036 /* SettingsView.swift */; };
+		A10000010037 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020037 /* TodayView.swift */; };
+		A10000010038 /* AddCardioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020038 /* AddCardioView.swift */; };
+		A10000010039 /* LiveWorkoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020039 /* LiveWorkoutView.swift */; };
+		A10000010040 /* SessionSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020040 /* SessionSummaryView.swift */; };
+		A10000010041 /* WorkoutActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020041 /* WorkoutActivityAttributes.swift */; };
+		A10000010042 /* WorkoutPlanGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020042 /* WorkoutPlanGenerator.swift */; };
+		A10000010043 /* TodayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020043 /* TodayViewModel.swift */; };
+		A1F000010001 /* LocalizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F000020001 /* LocalizationService.swift */; };
+		A1F000010002 /* FriendsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F000020002 /* FriendsViewModel.swift */; };
+		A1F000010003 /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F000020003 /* FriendsView.swift */; };
+		A1F000010004 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1F000020004 /* Localizable.xcstrings */; };
+		B2DDF2D32F2B46AE00F3BDD2 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A10000080001 /* GRDB */; };
+		CFDA0D6EC183377C3ED4892E /* StoreManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F13F9CE6F0A20C835907F69F /* StoreManager.swift */; };
+		EFE0B07B45A558DE4845DE2E /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 0A5979E7AD05776A158D134A /* GoogleSignIn */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		139B02FA3639AC78110D5580 /* AppSessionViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppSessionViewModel.swift; sourceTree = "<group>"; };
+		72FABF03EB9F7F221315A607 /* AppConfig.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		7878826E393A9DFC13BF1AC0 /* AuthGateView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthGateView.swift; sourceTree = "<group>"; };
+		7F63932A9C9D9D302556045F /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		960B2F791FC48883A9F5B885 /* CloudService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudService.swift; sourceTree = "<group>"; };
+		A10000020001 /* REPSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = REPSApp.swift; sourceTree = "<group>"; };
+		A10000020002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A10000020003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10000020004 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		A10000020005 /* CardioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardioSession.swift; sourceTree = "<group>"; };
+		A10000020006 /* Exercise.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Exercise.swift; sourceTree = "<group>"; };
+		A10000020007 /* Measurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Measurement.swift; sourceTree = "<group>"; };
+		A10000020008 /* PersonalRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalRecord.swift; sourceTree = "<group>"; };
+		A10000020009 /* Schedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schedule.swift; sourceTree = "<group>"; };
+		A10000020010 /* Template.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Template.swift; sourceTree = "<group>"; };
+		A10000020011 /* WorkoutSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutSession.swift; sourceTree = "<group>"; };
+		A10000020012 /* DatabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseService.swift; sourceTree = "<group>"; };
+		A10000020013 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		A10000020014 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		A10000020015 /* ExerciseViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseViewModel.swift; sourceTree = "<group>"; };
+		A10000020016 /* HistoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryViewModel.swift; sourceTree = "<group>"; };
+		A10000020017 /* MeasurementViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementViewModel.swift; sourceTree = "<group>"; };
+		A10000020018 /* ProgressViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressViewModel.swift; sourceTree = "<group>"; };
+		A10000020019 /* ScheduleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleViewModel.swift; sourceTree = "<group>"; };
+		A10000020020 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
+		A10000020021 /* TemplateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateViewModel.swift; sourceTree = "<group>"; };
+		A10000020022 /* WorkoutViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutViewModel.swift; sourceTree = "<group>"; };
+		A10000020023 /* ExerciseDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
+		A10000020024 /* ExerciseFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseFormView.swift; sourceTree = "<group>"; };
+		A10000020025 /* ExerciseListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseListView.swift; sourceTree = "<group>"; };
+		A10000020026 /* ExercisePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExercisePickerView.swift; sourceTree = "<group>"; };
+		A10000020027 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
+		A10000020028 /* MeasurementDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementDetailView.swift; sourceTree = "<group>"; };
+		A10000020029 /* MeasurementFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementFormView.swift; sourceTree = "<group>"; };
+		A10000020030 /* ProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressView.swift; sourceTree = "<group>"; };
+		A10000020031 /* AddExerciseToTemplateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddExerciseToTemplateView.swift; sourceTree = "<group>"; };
+		A10000020032 /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
+		A10000020033 /* TemplateDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateDetailView.swift; sourceTree = "<group>"; };
+		A10000020034 /* TemplateFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateFormView.swift; sourceTree = "<group>"; };
+		A10000020035 /* TemplateListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateListView.swift; sourceTree = "<group>"; };
+		A10000020036 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A10000020037 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		A10000020038 /* AddCardioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddCardioView.swift; sourceTree = "<group>"; };
+		A10000020039 /* LiveWorkoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveWorkoutView.swift; sourceTree = "<group>"; };
+		A10000020040 /* SessionSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSummaryView.swift; sourceTree = "<group>"; };
+		A10000020041 /* WorkoutActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutActivityAttributes.swift; sourceTree = "<group>"; };
+		A10000020042 /* WorkoutPlanGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutPlanGenerator.swift; sourceTree = "<group>"; };
+		A10000020043 /* TodayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayViewModel.swift; sourceTree = "<group>"; };
+		A10000030001 /* REPS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = REPS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1F000020001 /* LocalizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationService.swift; sourceTree = "<group>"; };
+		A1F000020002 /* FriendsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsViewModel.swift; sourceTree = "<group>"; };
+		A1F000020003 /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
+		A1F000020004 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		D897F452231EBD19321A45DF /* AccountModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AccountModels.swift; sourceTree = "<group>"; };
+		F13F9CE6F0A20C835907F69F /* StoreManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StoreManager.swift; sourceTree = "<group>"; };
+		F3D1DF07DEA7E6D6BEB87CC8 /* PaywallView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaywallView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000070002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B2DDF2D32F2B46AE00F3BDD2 /* GRDB in Frameworks */,
+				EFE0B07B45A558DE4845DE2E /* GoogleSignIn in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		07AB1A0C6B0576856AC9EA77 /* Premium */ = {
+			isa = PBXGroup;
+			children = (
+				F3D1DF07DEA7E6D6BEB87CC8 /* PaywallView.swift */,
+			);
+			path = Premium;
+			sourceTree = "<group>";
+		};
+		A10000040001 = {
+			isa = PBXGroup;
+			children = (
+				A10000040002 /* REPS */,
+				A10000040003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000040002 /* REPS */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020001 /* REPSApp.swift */,
+				A10000020002 /* ContentView.swift */,
+				A10000020003 /* Assets.xcassets */,
+				A1F000020004 /* Localizable.xcstrings */,
+				A10000040004 /* Models */,
+				A10000040005 /* Services */,
+				A10000040006 /* Utilities */,
+				A10000040007 /* ViewModels */,
+				A10000040008 /* Views */,
+				7F63932A9C9D9D302556045F /* Info.plist */,
+			);
+			path = REPS;
+			sourceTree = "<group>";
+		};
+		A10000040003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000030001 /* REPS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000040004 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020004 /* AppSettings.swift */,
+				A10000020005 /* CardioSession.swift */,
+				A10000020006 /* Exercise.swift */,
+				A10000020007 /* Measurement.swift */,
+				A10000020008 /* PersonalRecord.swift */,
+				A10000020009 /* Schedule.swift */,
+				A10000020010 /* Template.swift */,
+				A10000020041 /* WorkoutActivityAttributes.swift */,
+				A10000020011 /* WorkoutSession.swift */,
+				D897F452231EBD19321A45DF /* AccountModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A10000040005 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020012 /* DatabaseService.swift */,
+				A1F000020001 /* LocalizationService.swift */,
+				A10000020013 /* NotificationService.swift */,
+				A10000020042 /* WorkoutPlanGenerator.swift */,
+				72FABF03EB9F7F221315A607 /* AppConfig.swift */,
+				960B2F791FC48883A9F5B885 /* CloudService.swift */,
+				F13F9CE6F0A20C835907F69F /* StoreManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		A10000040006 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020014 /* Extensions.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		A10000040007 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020015 /* ExerciseViewModel.swift */,
+				A1F000020002 /* FriendsViewModel.swift */,
+				A10000020016 /* HistoryViewModel.swift */,
+				A10000020017 /* MeasurementViewModel.swift */,
+				A10000020018 /* ProgressViewModel.swift */,
+				A10000020019 /* ScheduleViewModel.swift */,
+				A10000020020 /* SettingsViewModel.swift */,
+				A10000020021 /* TemplateViewModel.swift */,
+				A10000020043 /* TodayViewModel.swift */,
+				A10000020022 /* WorkoutViewModel.swift */,
+				139B02FA3639AC78110D5580 /* AppSessionViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		A10000040008 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A10000040009 /* Exercises */,
+				A1F000030001 /* Friends */,
+				A10000040010 /* Progress */,
+				A10000040011 /* Schedule */,
+				A10000040012 /* Settings */,
+				A10000040013 /* Today */,
+				A10000040014 /* Workout */,
+				B0929B3899AFC8180549D11D /* Auth */,
+				07AB1A0C6B0576856AC9EA77 /* Premium */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A10000040009 /* Exercises */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020023 /* ExerciseDetailView.swift */,
+				A10000020024 /* ExerciseFormView.swift */,
+				A10000020025 /* ExerciseListView.swift */,
+				A10000020026 /* ExercisePickerView.swift */,
+			);
+			path = Exercises;
+			sourceTree = "<group>";
+		};
+		A10000040010 /* Progress */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020027 /* HistoryView.swift */,
+				A10000020028 /* MeasurementDetailView.swift */,
+				A10000020029 /* MeasurementFormView.swift */,
+				A10000020030 /* ProgressView.swift */,
+			);
+			path = Progress;
+			sourceTree = "<group>";
+		};
+		A10000040011 /* Schedule */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020031 /* AddExerciseToTemplateView.swift */,
+				A10000020032 /* ScheduleView.swift */,
+				A10000020033 /* TemplateDetailView.swift */,
+				A10000020034 /* TemplateFormView.swift */,
+				A10000020035 /* TemplateListView.swift */,
+			);
+			path = Schedule;
+			sourceTree = "<group>";
+		};
+		A10000040012 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020036 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		A10000040013 /* Today */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020037 /* TodayView.swift */,
+			);
+			path = Today;
+			sourceTree = "<group>";
+		};
+		A10000040014 /* Workout */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020038 /* AddCardioView.swift */,
+				A10000020039 /* LiveWorkoutView.swift */,
+				A10000020040 /* SessionSummaryView.swift */,
+			);
+			path = Workout;
+			sourceTree = "<group>";
+		};
+		A1F000030001 /* Friends */ = {
+			isa = PBXGroup;
+			children = (
+				A1F000020003 /* FriendsView.swift */,
+			);
+			path = Friends;
+			sourceTree = "<group>";
+		};
+		B0929B3899AFC8180549D11D /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				7878826E393A9DFC13BF1AC0 /* AuthGateView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000050001 /* REPS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000060001 /* Build configuration list for PBXNativeTarget "REPS" */;
+			buildPhases = (
+				A10000070001 /* Sources */,
+				A10000070002 /* Frameworks */,
+				A10000070003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = REPS;
+			packageProductDependencies = (
+				A10000080001 /* GRDB */,
+				0A5979E7AD05776A158D134A /* GoogleSignIn */,
+			);
+			productName = REPS;
+			productReference = A10000030001 /* REPS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000090001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A10000050001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = A100000A0001 /* Build configuration list for PBXProject "REPS" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				de,
+				es,
+				ar,
+				hi,
+				"zh-Hans",
+				Base,
+			);
+			mainGroup = A10000040001;
+			packageReferences = (
+				A100000B0001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				2AA25059C3FE0710F4AFFCC6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+			);
+			productRefGroup = A10000040003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000050001 /* REPS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000070003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010003 /* Assets.xcassets in Resources */,
+				A1F000010004 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000070001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010001 /* REPSApp.swift in Sources */,
+				A10000010002 /* ContentView.swift in Sources */,
+				A10000010004 /* AppSettings.swift in Sources */,
+				A10000010005 /* CardioSession.swift in Sources */,
+				A10000010006 /* Exercise.swift in Sources */,
+				A10000010007 /* Measurement.swift in Sources */,
+				A10000010008 /* PersonalRecord.swift in Sources */,
+				A10000010009 /* Schedule.swift in Sources */,
+				A10000010010 /* Template.swift in Sources */,
+				A10000010011 /* WorkoutSession.swift in Sources */,
+				A10000010041 /* WorkoutActivityAttributes.swift in Sources */,
+				A10000010012 /* DatabaseService.swift in Sources */,
+				A1F000010001 /* LocalizationService.swift in Sources */,
+				A10000010013 /* NotificationService.swift in Sources */,
+				A10000010042 /* WorkoutPlanGenerator.swift in Sources */,
+				A10000010014 /* Extensions.swift in Sources */,
+				A10000010015 /* ExerciseViewModel.swift in Sources */,
+				A1F000010002 /* FriendsViewModel.swift in Sources */,
+				A10000010016 /* HistoryViewModel.swift in Sources */,
+				A10000010017 /* MeasurementViewModel.swift in Sources */,
+				A10000010018 /* ProgressViewModel.swift in Sources */,
+				A10000010019 /* ScheduleViewModel.swift in Sources */,
+				A10000010020 /* SettingsViewModel.swift in Sources */,
+				A10000010021 /* TemplateViewModel.swift in Sources */,
+				A10000010043 /* TodayViewModel.swift in Sources */,
+				A10000010022 /* WorkoutViewModel.swift in Sources */,
+				A10000010023 /* ExerciseDetailView.swift in Sources */,
+				A10000010024 /* ExerciseFormView.swift in Sources */,
+				A10000010025 /* ExerciseListView.swift in Sources */,
+				A10000010026 /* ExercisePickerView.swift in Sources */,
+				A1F000010003 /* FriendsView.swift in Sources */,
+				A10000010027 /* HistoryView.swift in Sources */,
+				A10000010028 /* MeasurementDetailView.swift in Sources */,
+				A10000010029 /* MeasurementFormView.swift in Sources */,
+				A10000010030 /* ProgressView.swift in Sources */,
+				A10000010031 /* AddExerciseToTemplateView.swift in Sources */,
+				A10000010032 /* ScheduleView.swift in Sources */,
+				A10000010033 /* TemplateDetailView.swift in Sources */,
+				A10000010034 /* TemplateFormView.swift in Sources */,
+				A10000010035 /* TemplateListView.swift in Sources */,
+				A10000010036 /* SettingsView.swift in Sources */,
+				A10000010037 /* TodayView.swift in Sources */,
+				A10000010038 /* AddCardioView.swift in Sources */,
+				A10000010039 /* LiveWorkoutView.swift in Sources */,
+				A10000010040 /* SessionSummaryView.swift in Sources */,
+				6DE0B4C31C34502552C00603 /* AccountModels.swift in Sources */,
+				9CCE72BF026CA3FCF826B52B /* AppConfig.swift in Sources */,
+				772861F77D9003080E0B99A5 /* CloudService.swift in Sources */,
+				CFDA0D6EC183377C3ED4892E /* StoreManager.swift in Sources */,
+				4AC5FB39B1C7099C02C35FB9 /* AppSessionViewModel.swift in Sources */,
+				2F1C565460BBA56D92B377F9 /* AuthGateView.swift in Sources */,
+				5DCD3910507AF65F7AA317C3 /* PaywallView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A100000C0001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = REPS/REPS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 783Z7ZFHV9;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = REPS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = REPS;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take progress photos";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Select progress photos";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.julianfalk.reps;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A100000C0002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = REPS/REPS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 783Z7ZFHV9;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = REPS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = REPS;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take progress photos";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Select progress photos";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.julianfalk.reps;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A100000D0001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A100000D0002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000060001 /* Build configuration list for PBXNativeTarget "REPS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000C0001 /* Debug */,
+				A100000C0002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A100000A0001 /* Build configuration list for PBXProject "REPS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000D0001 /* Debug */,
+				A100000D0002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2AA25059C3FE0710F4AFFCC6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
+		A100000B0001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.24.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0A5979E7AD05776A158D134A /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2AA25059C3FE0710F4AFFCC6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		A10000080001 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000B0001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A10000090001 /* Project object */;
+}

@@ -1,11 +1,11 @@
-# Workout iOS
+# REPS iOS
 
 SwiftUI iOS app for workout tracking.
 
 ## Includes
 
 - Local workout logging with GRDB
-- Workout Cloud account flow
+- REPS Cloud account flow
 - Apple Sign In
 - Premium/paywall flow scaffold
 - Workout stats sync to `workout-api`
@@ -23,5 +23,5 @@ Related backend repo:
 
 ## Project
 
-- Xcode project: `WorkoutApp.xcodeproj`
-- App target: `WorkoutApp`
+- Xcode project: `REPS.xcodeproj`
+- App target: `REPS`

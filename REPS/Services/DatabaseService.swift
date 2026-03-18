@@ -1,0 +1,1771 @@
+import Foundation
+import GRDB
+
+final class DatabaseService {
+    static let shared = DatabaseService()
+
+    private var dbQueue: DatabaseQueue!
+    private let useInMemoryDatabase: Bool
+    private let customDatabasePath: String?
+
+    init(inMemory: Bool = false, databasePath: String? = nil) {
+        self.useInMemoryDatabase = inMemory
+        self.customDatabasePath = databasePath
+        do {
+            try setupDatabase()
+        } catch {
+            fatalError("Failed to setup database: \(error)")
+        }
+    }
+
+    private func setupDatabase() throws {
+        var configuration = Configuration()
+        configuration.foreignKeysEnabled = true
+
+        if useInMemoryDatabase {
+            dbQueue = try DatabaseQueue(path: ":memory:", configuration: configuration)
+        } else {
+            let databasePath: String
+            if let customDatabasePath {
+                databasePath = customDatabasePath
+            } else {
+                let fileManager = FileManager.default
+                let documentsURL = try fileManager.url(
+                    for: .documentDirectory,
+                    in: .userDomainMask,
+                    appropriateFor: nil,
+                    create: true
+                )
+                databasePath = documentsURL.appendingPathComponent("workout.db").path
+            }
+
+            dbQueue = try DatabaseQueue(path: databasePath, configuration: configuration)
+        }
+        try migrator.migrate(dbQueue)
+
+        // Ensure templates and schedule are seeded
+        try seedDefaultDataIfNeeded()
+    }
+
+    private var migrator: DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+
+        migrator.registerMigration("v1") { db in
+            // Exercises
+            try db.create(table: "exercises") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("exercise_type", .text).notNull().defaults(to: "reps")
+                t.column("muscle_groups", .text)
+                t.column("equipment", .text)
+                t.column("notes", .text)
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+
+            // Templates
+            try db.create(table: "templates") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+
+            // Template Exercises
+            try db.create(table: "template_exercises") { t in
+                t.column("id", .text).primaryKey()
+                t.column("template_id", .text).notNull()
+                    .references("templates", onDelete: .cascade)
+                t.column("exercise_id", .text).notNull()
+                    .references("exercises", onDelete: .cascade)
+                t.column("sort_order", .integer).notNull()
+                t.column("target_sets", .integer)
+                t.column("target_reps", .integer)
+                t.column("target_duration", .integer)
+                t.column("target_weight", .double)
+            }
+
+            // Schedule
+            try db.create(table: "schedule") { t in
+                t.column("id", .text).primaryKey()
+                t.column("day_of_week", .integer).notNull()
+                t.column("template_id", .text)
+                    .references("templates", onDelete: .setNull)
+                t.column("is_rest_day", .boolean).notNull().defaults(to: false)
+            }
+
+            // Workout Sessions
+            try db.create(table: "workout_sessions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("template_id", .text)
+                    .references("templates", onDelete: .setNull)
+                t.column("started_at", .datetime).notNull()
+                t.column("completed_at", .datetime)
+                t.column("duration", .integer)
+                t.column("notes", .text)
+            }
+
+            // Session Sets
+            try db.create(table: "session_sets") { t in
+                t.column("id", .text).primaryKey()
+                t.column("session_id", .text).notNull()
+                    .references("workout_sessions", onDelete: .cascade)
+                t.column("exercise_id", .text).notNull()
+                    .references("exercises", onDelete: .cascade)
+                t.column("set_number", .integer).notNull()
+                t.column("reps", .integer)
+                t.column("duration", .integer)
+                t.column("weight", .double)
+                t.column("completed_at", .datetime).notNull()
+            }
+
+            // Cardio Sessions
+            try db.create(table: "cardio_sessions") { t in
+                t.column("id", .text).primaryKey()
+                t.column("session_id", .text).notNull()
+                    .references("workout_sessions", onDelete: .cascade)
+                t.column("cardio_type", .text).notNull()
+                t.column("duration", .integer).notNull()
+                t.column("distance", .double)
+                t.column("calories", .integer)
+                t.column("avg_heart_rate", .integer)
+                t.column("max_heart_rate", .integer)
+                t.column("incline", .double)
+                t.column("resistance", .integer)
+                t.column("notes", .text)
+            }
+
+            // Measurements
+            try db.create(table: "measurements") { t in
+                t.column("id", .text).primaryKey()
+                t.column("date", .datetime).notNull()
+                t.column("body_weight", .double)
+                t.column("body_fat", .double)
+                t.column("neck", .double)
+                t.column("shoulders", .double)
+                t.column("chest", .double)
+                t.column("waist", .double)
+                t.column("hips", .double)
+                t.column("arm_left", .double)
+                t.column("arm_right", .double)
+                t.column("forearm_left", .double)
+                t.column("forearm_right", .double)
+                t.column("thigh_left", .double)
+                t.column("thigh_right", .double)
+                t.column("calf_left", .double)
+                t.column("calf_right", .double)
+                t.column("notes", .text)
+                t.column("created_at", .datetime).notNull()
+            }
+
+            // Progress Photos
+            try db.create(table: "progress_photos") { t in
+                t.column("id", .text).primaryKey()
+                t.column("measurement_id", .text).notNull()
+                    .references("measurements", onDelete: .cascade)
+                t.column("photo_data", .blob).notNull()
+                t.column("photo_type", .text)
+                t.column("created_at", .datetime).notNull()
+            }
+
+            // Personal Records
+            try db.create(table: "personal_records") { t in
+                t.column("id", .text).primaryKey()
+                t.column("exercise_id", .text).notNull()
+                    .references("exercises", onDelete: .cascade)
+                t.column("weight", .double).notNull()
+                t.column("reps", .integer).notNull()
+                t.column("achieved_at", .datetime).notNull()
+                t.column("session_id", .text).notNull()
+                    .references("workout_sessions", onDelete: .cascade)
+            }
+
+            // Settings
+            try db.create(table: "settings") { t in
+                t.column("key", .text).primaryKey()
+                t.column("value", .text).notNull()
+            }
+
+            // Insert default settings
+            try db.execute(sql: """
+                INSERT INTO settings (key, value) VALUES
+                ('defaultRestTime', '90'),
+                ('workoutReminderEnabled', 'false'),
+                ('workoutReminderTime', '07:00'),
+                ('restTimerSound', 'true'),
+                ('restTimerHaptic', 'true'),
+                ('weekStartsOn', '1'),
+                ('trainingSetupCompleted', 'false'),
+                ('goalFocus', 'hypertrophy'),
+                ('preferredSessionLengthMinutes', '60'),
+                ('targetTrainingDaysPerWeek', '4'),
+                ('rotationStyle', 'balanced'),
+                ('preferredLanguage', 'en'),
+                ('motivationPushEnabled', 'true'),
+                ('socialPushEnabled', 'true'),
+                ('socialVisibility', 'friends_medium'),
+                ('quietHoursStart', '21:00'),
+                ('quietHoursEnd', '08:00')
+            """)
+        }
+
+        migrator.registerMigration("v2_seed_ppl") { db in
+            let now = Date().ISO8601Format()
+
+            // ── Push Exercises ──
+            let bankdruecken = UUID().uuidString
+            let schraegbankKH = UUID().uuidString
+            let dips = UUID().uuidString
+            let cableFlys = UUID().uuidString
+            let trizepsPushdowns = UUID().uuidString
+            let overheadTrizeps = UUID().uuidString
+
+            // ── Pull Exercises ──
+            let klimmzuege = UUID().uuidString
+            let rudernLH = UUID().uuidString
+            let seatedCableRow = UUID().uuidString
+            let facePulls = UUID().uuidString
+            let bizepsCurlsLH = UUID().uuidString
+            let hammerCurls = UUID().uuidString
+
+            // ── Leg Exercises ──
+            let kniebeugen = UUID().uuidString
+            let rumKreuzheben = UUID().uuidString
+            let beinpresse = UUID().uuidString
+            let walkingLunges = UUID().uuidString
+            let beinbeuger = UUID().uuidString
+            let wadenheben = UUID().uuidString
+
+            // ── Shoulders/Arms/Core Exercises ──
+            let schulterdrKH = UUID().uuidString
+            let seitheben = UUID().uuidString
+            let reverseFlys = UUID().uuidString
+            let barbellCurls = UUID().uuidString
+            let inclineCurls = UUID().uuidString
+            let skullcrushers = UUID().uuidString
+            let cableKickbacks = UUID().uuidString
+            let hangingLegRaises = UUID().uuidString
+            let cableCrunches = UUID().uuidString
+
+            // Insert all exercises
+            try db.execute(sql: """
+                INSERT INTO exercises (id, name, exercise_type, muscle_groups, equipment, notes, created_at, updated_at) VALUES
+                -- Push
+                ('\(bankdruecken)', 'Bankdrücken', 'reps', '["Chest","Triceps","Front Delts"]', 'Barbell', 'Flache Bank, kontrolliertes Absenken zur Brust', '\(now)', '\(now)'),
+                ('\(schraegbankKH)', 'Schrägbank Kurzhanteln', 'reps', '["Chest","Front Delts"]', 'Dumbbells', 'Schrägbank 30-45 Grad, voller Bewegungsumfang', '\(now)', '\(now)'),
+                ('\(dips)', 'Dips', 'reps', '["Chest","Triceps"]', 'Dip Station', 'Brust-fokussiert: Oberkörper nach vorne lehnen', '\(now)', '\(now)'),
+                ('\(cableFlys)', 'Cable Flys', 'reps', '["Chest"]', 'Cable Machine', 'Kabelzug, kontrollierte Bewegung, Squeeze am Ende', '\(now)', '\(now)'),
+                ('\(trizepsPushdowns)', 'Trizeps Pushdowns', 'reps', '["Triceps"]', 'Cable Machine', 'Kabelzug mit Seil oder V-Bar', '\(now)', '\(now)'),
+                ('\(overheadTrizeps)', 'Overhead Trizeps Extension', 'reps', '["Triceps"]', 'Cable Machine', 'Kabelzug oder Kurzhantel über Kopf', '\(now)', '\(now)'),
+                -- Pull
+                ('\(klimmzuege)', 'Klimmzüge / Latzug', 'reps', '["Back","Biceps"]', 'Pull-Up Bar', 'Klimmzüge oder Latzug als Alternative', '\(now)', '\(now)'),
+                ('\(rudernLH)', 'Rudern Langhantel', 'reps', '["Back","Biceps"]', 'Barbell', 'Vorgebeugtes Rudern, Rücken gerade halten', '\(now)', '\(now)'),
+                ('\(seatedCableRow)', 'Seated Cable Row', 'reps', '["Back"]', 'Cable Machine', 'Enger Griff, Schulterblätter zusammenziehen', '\(now)', '\(now)'),
+                ('\(facePulls)', 'Face Pulls', 'reps', '["Rear Delts","Upper Back"]', 'Cable Machine', 'Seil auf Gesichtshöhe ziehen, hohe Wiederholungen', '\(now)', '\(now)'),
+                ('\(bizepsCurlsLH)', 'Bizeps Curls Langhantel', 'reps', '["Biceps"]', 'Barbell', 'SZ-Stange oder gerade Stange', '\(now)', '\(now)'),
+                ('\(hammerCurls)', 'Hammer Curls', 'reps', '["Biceps","Forearms"]', 'Dumbbells', 'Neutraler Griff, Kurzhanteln', '\(now)', '\(now)'),
+                -- Legs
+                ('\(kniebeugen)', 'Kniebeugen', 'reps', '["Quads","Glutes"]', 'Barbell', 'High Bar oder Low Bar Squat, tiefe Position', '\(now)', '\(now)'),
+                ('\(rumKreuzheben)', 'Rumänisches Kreuzheben', 'reps', '["Hamstrings","Glutes","Lower Back"]', 'Barbell', 'Beine leicht gebeugt, Hüfte nach hinten', '\(now)', '\(now)'),
+                ('\(beinpresse)', 'Beinpresse', 'reps', '["Quads","Glutes"]', 'Leg Press', 'Fußposition variieren für Fokus', '\(now)', '\(now)'),
+                ('\(walkingLunges)', 'Walking Lunges', 'reps', '["Quads","Glutes"]', 'Dumbbells', 'Reps pro Bein, aufrechter Oberkörper', '\(now)', '\(now)'),
+                ('\(beinbeuger)', 'Beinbeuger Maschine', 'reps', '["Hamstrings"]', 'Machine', 'Liegend oder sitzend, kontrolliert', '\(now)', '\(now)'),
+                ('\(wadenheben)', 'Wadenheben stehend', 'reps', '["Calves"]', 'Machine', 'Voller Bewegungsumfang, Pause unten', '\(now)', '\(now)'),
+                -- Shoulders / Arms / Core
+                ('\(schulterdrKH)', 'Schulterdrücken Kurzhantel', 'reps', '["Shoulders","Triceps"]', 'Dumbbells', 'Sitzend oder stehend, Kurzhanteln', '\(now)', '\(now)'),
+                ('\(seitheben)', 'Seitheben', 'reps', '["Shoulders"]', 'Dumbbells', 'Leichtes Gewicht, kontrolliert, 12-15 Reps', '\(now)', '\(now)'),
+                ('\(reverseFlys)', 'Reverse Flys', 'reps', '["Rear Delts"]', 'Dumbbells', 'Vorgebeugt oder am Kabelzug', '\(now)', '\(now)'),
+                ('\(barbellCurls)', 'Barbell Curls', 'reps', '["Biceps"]', 'Barbell', 'SZ-Stange, strikter Form', '\(now)', '\(now)'),
+                ('\(inclineCurls)', 'Incline Dumbbell Curls', 'reps', '["Biceps"]', 'Dumbbells', 'Schrägbank 45 Grad, volle Dehnung', '\(now)', '\(now)'),
+                ('\(skullcrushers)', 'Skullcrushers', 'reps', '["Triceps"]', 'Barbell', 'SZ-Stange, Ellenbogen fixiert', '\(now)', '\(now)'),
+                ('\(cableKickbacks)', 'Cable Kickbacks', 'reps', '["Triceps"]', 'Cable Machine', 'Kabelzug, ein Arm, volle Extension', '\(now)', '\(now)'),
+                ('\(hangingLegRaises)', 'Hanging Leg Raises', 'reps', '["Abs"]', 'Pull-Up Bar', 'Beine gestreckt oder angewinkelt', '\(now)', '\(now)'),
+                ('\(cableCrunches)', 'Cable Crunches', 'reps', '["Abs"]', 'Cable Machine', 'Kabelzug, kniend, Crunches nach unten', '\(now)', '\(now)')
+            """)
+
+            // ── Templates ──
+            let pushTemplate = UUID().uuidString
+            let pullTemplate = UUID().uuidString
+            let legsTemplate = UUID().uuidString
+            let shouldersArmsTemplate = UUID().uuidString
+
+            try db.execute(sql: """
+                INSERT INTO templates (id, name, created_at, updated_at) VALUES
+                ('\(pushTemplate)', 'Push (Brust, Trizeps, vordere Schulter)', '\(now)', '\(now)'),
+                ('\(pullTemplate)', 'Pull (Rücken, Bizeps, hintere Schulter)', '\(now)', '\(now)'),
+                ('\(legsTemplate)', 'Legs (Beine, unterer Rücken)', '\(now)', '\(now)'),
+                ('\(shouldersArmsTemplate)', 'Schultern, Arme & Core', '\(now)', '\(now)')
+            """)
+
+            // ── Tag A: Push ──
+            try db.execute(sql: """
+                INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, target_sets, target_reps, target_weight) VALUES
+                ('\(UUID().uuidString)', '\(pushTemplate)', '\(bankdruecken)', 0, 4, 8, NULL),
+                ('\(UUID().uuidString)', '\(pushTemplate)', '\(schraegbankKH)', 1, 3, 10, NULL),
+                ('\(UUID().uuidString)', '\(pushTemplate)', '\(dips)', 2, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(pushTemplate)', '\(cableFlys)', 3, 3, 15, NULL),
+                ('\(UUID().uuidString)', '\(pushTemplate)', '\(trizepsPushdowns)', 4, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(pushTemplate)', '\(overheadTrizeps)', 5, 3, 12, NULL)
+            """)
+
+            // ── Tag B: Pull ──
+            try db.execute(sql: """
+                INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, target_sets, target_reps, target_weight) VALUES
+                ('\(UUID().uuidString)', '\(pullTemplate)', '\(klimmzuege)', 0, 4, 10, NULL),
+                ('\(UUID().uuidString)', '\(pullTemplate)', '\(rudernLH)', 1, 4, 10, NULL),
+                ('\(UUID().uuidString)', '\(pullTemplate)', '\(seatedCableRow)', 2, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(pullTemplate)', '\(facePulls)', 3, 3, 20, NULL),
+                ('\(UUID().uuidString)', '\(pullTemplate)', '\(bizepsCurlsLH)', 4, 3, 10, NULL),
+                ('\(UUID().uuidString)', '\(pullTemplate)', '\(hammerCurls)', 5, 3, 12, NULL)
+            """)
+
+            // ── Tag C: Legs ──
+            try db.execute(sql: """
+                INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, target_sets, target_reps, target_weight) VALUES
+                ('\(UUID().uuidString)', '\(legsTemplate)', '\(kniebeugen)', 0, 4, 8, NULL),
+                ('\(UUID().uuidString)', '\(legsTemplate)', '\(rumKreuzheben)', 1, 3, 10, NULL),
+                ('\(UUID().uuidString)', '\(legsTemplate)', '\(beinpresse)', 2, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(legsTemplate)', '\(walkingLunges)', 3, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(legsTemplate)', '\(beinbeuger)', 4, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(legsTemplate)', '\(wadenheben)', 5, 4, 15, NULL)
+            """)
+
+            // ── Tag D: Schultern, Arme & Core ──
+            try db.execute(sql: """
+                INSERT INTO template_exercises (id, template_id, exercise_id, sort_order, target_sets, target_reps, target_weight) VALUES
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(schulterdrKH)', 0, 4, 10, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(seitheben)', 1, 4, 15, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(reverseFlys)', 2, 3, 15, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(barbellCurls)', 3, 3, 10, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(inclineCurls)', 4, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(skullcrushers)', 5, 3, 10, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(cableKickbacks)', 6, 3, 12, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(hangingLegRaises)', 7, 3, 15, NULL),
+                ('\(UUID().uuidString)', '\(shouldersArmsTemplate)', '\(cableCrunches)', 8, 3, 20, NULL)
+            """)
+        }
+
+        migrator.registerMigration("v3_seed_schedule") { db in
+            // Get the existing templates by name
+            let pushTemplate = try WorkoutTemplate
+                .filter(WorkoutTemplate.Columns.name == "Push (Brust, Trizeps, vordere Schulter)")
+                .fetchOne(db)
+
+            let pullTemplate = try WorkoutTemplate
+                .filter(WorkoutTemplate.Columns.name == "Pull (Rücken, Bizeps, hintere Schulter)")
+                .fetchOne(db)
+
+            let legsTemplate = try WorkoutTemplate
+                .filter(WorkoutTemplate.Columns.name == "Legs (Beine, unterer Rücken)")
+                .fetchOne(db)
+
+            let shouldersArmsTemplate = try WorkoutTemplate
+                .filter(WorkoutTemplate.Columns.name == "Schultern, Arme & Core")
+                .fetchOne(db)
+
+            // Delete any existing schedule entries
+            try db.execute(sql: "DELETE FROM schedule")
+
+            // Insert the weekly schedule
+            // 0 = Sunday, 1 = Monday, 2 = Tuesday, 3 = Wednesday, 4 = Thursday, 5 = Friday, 6 = Saturday
+            if let push = pushTemplate, let pull = pullTemplate, let legs = legsTemplate, let shoulders = shouldersArmsTemplate {
+                try db.execute(sql: """
+                    INSERT INTO schedule (id, day_of_week, template_id, is_rest_day) VALUES
+                    ('\(UUID().uuidString)', 0, NULL, 1),                        -- Sonntag: Rest Day
+                    ('\(UUID().uuidString)', 1, '\(push.id.uuidString)', 0),     -- Montag: Push
+                    ('\(UUID().uuidString)', 2, '\(pull.id.uuidString)', 0),     -- Dienstag: Pull
+                    ('\(UUID().uuidString)', 3, '\(legs.id.uuidString)', 0),     -- Mittwoch: Legs
+                    ('\(UUID().uuidString)', 4, NULL, 1),                        -- Donnerstag: Rest Day
+                    ('\(UUID().uuidString)', 5, '\(shoulders.id.uuidString)', 0),-- Freitag: Shoulders, Arms & Core
+                    ('\(UUID().uuidString)', 6, NULL, 1)                         -- Samstag: Rest Day
+                """)
+            }
+        }
+
+        migrator.registerMigration("v4_workout_plans_and_catalog") { db in
+            try db.alter(table: "exercises") { t in
+                t.add(column: "movement_pattern", .text)
+                t.add(column: "variation_group", .text)
+                t.add(column: "split_tags", .text)
+                t.add(column: "is_compound", .boolean).notNull().defaults(to: false)
+                t.add(column: "is_anchor_candidate", .boolean).notNull().defaults(to: false)
+            }
+
+            try db.create(table: "workout_day_plans") { t in
+                t.column("id", .text).primaryKey()
+                t.column("date", .datetime).notNull()
+                t.column("template_id", .text).notNull()
+                    .references("templates", onDelete: .cascade)
+                t.column("shuffle_count", .integer).notNull().defaults(to: 0)
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX idx_workout_day_plans_date_template
+                ON workout_day_plans(date, template_id)
+            """)
+
+            try db.create(table: "workout_day_plan_exercises") { t in
+                t.column("id", .text).primaryKey()
+                t.column("plan_id", .text).notNull()
+                    .references("workout_day_plans", onDelete: .cascade)
+                t.column("exercise_id", .text).notNull()
+                    .references("exercises", onDelete: .cascade)
+                t.column("sort_order", .integer).notNull()
+                t.column("target_sets", .integer)
+                t.column("target_reps", .integer)
+                t.column("target_duration", .integer)
+                t.column("target_weight", .double)
+                t.column("is_anchor", .boolean).notNull().defaults(to: false)
+            }
+
+            try db.alter(table: "workout_sessions") { t in
+                t.add(column: "day_plan_id", .text)
+                    .references("workout_day_plans", onDelete: .setNull)
+            }
+
+            try Self.applyExerciseCatalogMetadataAndInsertions(db: db, now: Date())
+        }
+
+        return migrator
+    }
+
+    private func seedDefaultDataIfNeeded() throws {
+        try dbQueue.write { db in
+            // Check if templates with exercises already exist
+            let templateCount = try WorkoutTemplate.fetchCount(db)
+            let exerciseCount = try TemplateExercise.fetchCount(db)
+
+            if templateCount > 0 && exerciseCount > 0 {
+                print("✅ Templates and exercises already exist (\(templateCount) templates, \(exerciseCount) template exercises)")
+                return
+            }
+
+            // If templates exist but no exercises, delete everything and start fresh
+            if templateCount > 0 {
+                print("⚠️ Found templates without exercises, cleaning up...")
+                try db.execute(sql: "DELETE FROM schedule")
+                try db.execute(sql: "DELETE FROM template_exercises")
+                try db.execute(sql: "DELETE FROM templates")
+                try db.execute(sql: "DELETE FROM exercises")
+            }
+
+            print("🌱 Seeding default templates and exercises...")
+            let now = Date()
+
+            // ── Exercise IDs ──
+            let bankdruecken = UUID()
+            let schraegbankKH = UUID()
+            let dips = UUID()
+            let cableFlys = UUID()
+            let trizepsPushdowns = UUID()
+            let overheadTrizeps = UUID()
+
+            let klimmzuege = UUID()
+            let rudernLH = UUID()
+            let seatedCableRow = UUID()
+            let facePulls = UUID()
+            let bizepsCurlsLH = UUID()
+            let hammerCurls = UUID()
+
+            let kniebeugen = UUID()
+            let rumKreuzheben = UUID()
+            let beinpresse = UUID()
+            let walkingLunges = UUID()
+            let beinbeuger = UUID()
+            let wadenheben = UUID()
+
+            let schulterdrKH = UUID()
+            let seitheben = UUID()
+            let reverseFlys = UUID()
+            let barbellCurls = UUID()
+            let inclineCurls = UUID()
+            let skullcrushers = UUID()
+            let cableKickbacks = UUID()
+            let hangingLegRaises = UUID()
+            let cableCrunches = UUID()
+
+            // ── Create Exercises ──
+            let exercises: [Exercise] = [
+                // Push
+                Exercise(id: bankdruecken, name: "Bankdrücken", exerciseType: .reps, muscleGroups: ["Chest","Triceps","Front Delts"], equipment: "Barbell", notes: "Flache Bank, kontrolliertes Absenken zur Brust", createdAt: now, updatedAt: now),
+                Exercise(id: schraegbankKH, name: "Schrägbank Kurzhanteln", exerciseType: .reps, muscleGroups: ["Chest","Front Delts"], equipment: "Dumbbells", notes: "Schrägbank 30-45 Grad, voller Bewegungsumfang", createdAt: now, updatedAt: now),
+                Exercise(id: dips, name: "Dips", exerciseType: .reps, muscleGroups: ["Chest","Triceps"], equipment: "Dip Station", notes: "Brust-fokussiert: Oberkörper nach vorne lehnen", createdAt: now, updatedAt: now),
+                Exercise(id: cableFlys, name: "Cable Flys", exerciseType: .reps, muscleGroups: ["Chest"], equipment: "Cable Machine", notes: "Kabelzug, kontrollierte Bewegung, Squeeze am Ende", createdAt: now, updatedAt: now),
+                Exercise(id: trizepsPushdowns, name: "Trizeps Pushdowns", exerciseType: .reps, muscleGroups: ["Triceps"], equipment: "Cable Machine", notes: "Kabelzug mit Seil oder V-Bar", createdAt: now, updatedAt: now),
+                Exercise(id: overheadTrizeps, name: "Overhead Trizeps Extension", exerciseType: .reps, muscleGroups: ["Triceps"], equipment: "Cable Machine", notes: "Kabelzug oder Kurzhantel über Kopf", createdAt: now, updatedAt: now),
+                // Pull
+                Exercise(id: klimmzuege, name: "Klimmzüge / Latzug", exerciseType: .reps, muscleGroups: ["Back","Biceps"], equipment: "Pull-Up Bar", notes: "Klimmzüge oder Latzug als Alternative", createdAt: now, updatedAt: now),
+                Exercise(id: rudernLH, name: "Rudern Langhantel", exerciseType: .reps, muscleGroups: ["Back","Biceps"], equipment: "Barbell", notes: "Vorgebeugtes Rudern, Rücken gerade halten", createdAt: now, updatedAt: now),
+                Exercise(id: seatedCableRow, name: "Seated Cable Row", exerciseType: .reps, muscleGroups: ["Back"], equipment: "Cable Machine", notes: "Enger Griff, Schulterblätter zusammenziehen", createdAt: now, updatedAt: now),
+                Exercise(id: facePulls, name: "Face Pulls", exerciseType: .reps, muscleGroups: ["Rear Delts","Upper Back"], equipment: "Cable Machine", notes: "Seil auf Gesichtshöhe ziehen, hohe Wiederholungen", createdAt: now, updatedAt: now),
+                Exercise(id: bizepsCurlsLH, name: "Bizeps Curls Langhantel", exerciseType: .reps, muscleGroups: ["Biceps"], equipment: "Barbell", notes: "SZ-Stange oder gerade Stange", createdAt: now, updatedAt: now),
+                Exercise(id: hammerCurls, name: "Hammer Curls", exerciseType: .reps, muscleGroups: ["Biceps","Forearms"], equipment: "Dumbbells", notes: "Neutraler Griff, Kurzhanteln", createdAt: now, updatedAt: now),
+                // Legs
+                Exercise(id: kniebeugen, name: "Kniebeugen", exerciseType: .reps, muscleGroups: ["Quads","Glutes"], equipment: "Barbell", notes: "High Bar oder Low Bar Squat, tiefe Position", createdAt: now, updatedAt: now),
+                Exercise(id: rumKreuzheben, name: "Rumänisches Kreuzheben", exerciseType: .reps, muscleGroups: ["Hamstrings","Glutes","Lower Back"], equipment: "Barbell", notes: "Beine leicht gebeugt, Hüfte nach hinten", createdAt: now, updatedAt: now),
+                Exercise(id: beinpresse, name: "Beinpresse", exerciseType: .reps, muscleGroups: ["Quads","Glutes"], equipment: "Leg Press", notes: "Fußposition variieren für Fokus", createdAt: now, updatedAt: now),
+                Exercise(id: walkingLunges, name: "Walking Lunges", exerciseType: .reps, muscleGroups: ["Quads","Glutes"], equipment: "Dumbbells", notes: "Reps pro Bein, aufrechter Oberkörper", createdAt: now, updatedAt: now),
+                Exercise(id: beinbeuger, name: "Beinbeuger Maschine", exerciseType: .reps, muscleGroups: ["Hamstrings"], equipment: "Machine", notes: "Liegend oder sitzend, kontrolliert", createdAt: now, updatedAt: now),
+                Exercise(id: wadenheben, name: "Wadenheben stehend", exerciseType: .reps, muscleGroups: ["Calves"], equipment: "Machine", notes: "Voller Bewegungsumfang, Pause unten", createdAt: now, updatedAt: now),
+                // Shoulders/Arms/Core
+                Exercise(id: schulterdrKH, name: "Schulterdrücken Kurzhantel", exerciseType: .reps, muscleGroups: ["Shoulders","Triceps"], equipment: "Dumbbells", notes: "Sitzend oder stehend, Kurzhanteln", createdAt: now, updatedAt: now),
+                Exercise(id: seitheben, name: "Seitheben", exerciseType: .reps, muscleGroups: ["Shoulders"], equipment: "Dumbbells", notes: "Leichtes Gewicht, kontrolliert, 12-15 Reps", createdAt: now, updatedAt: now),
+                Exercise(id: reverseFlys, name: "Reverse Flys", exerciseType: .reps, muscleGroups: ["Rear Delts"], equipment: "Dumbbells", notes: "Vorgebeugt oder am Kabelzug", createdAt: now, updatedAt: now),
+                Exercise(id: barbellCurls, name: "Barbell Curls", exerciseType: .reps, muscleGroups: ["Biceps"], equipment: "Barbell", notes: "SZ-Stange, strikter Form", createdAt: now, updatedAt: now),
+                Exercise(id: inclineCurls, name: "Incline Dumbbell Curls", exerciseType: .reps, muscleGroups: ["Biceps"], equipment: "Dumbbells", notes: "Schrägbank 45 Grad, volle Dehnung", createdAt: now, updatedAt: now),
+                Exercise(id: skullcrushers, name: "Skullcrushers", exerciseType: .reps, muscleGroups: ["Triceps"], equipment: "Barbell", notes: "SZ-Stange, Ellenbogen fixiert", createdAt: now, updatedAt: now),
+                Exercise(id: cableKickbacks, name: "Cable Kickbacks", exerciseType: .reps, muscleGroups: ["Triceps"], equipment: "Cable Machine", notes: "Kabelzug, ein Arm, volle Extension", createdAt: now, updatedAt: now),
+                Exercise(id: hangingLegRaises, name: "Hanging Leg Raises", exerciseType: .reps, muscleGroups: ["Abs"], equipment: "Pull-Up Bar", notes: "Beine gestreckt oder angewinkelt", createdAt: now, updatedAt: now),
+                Exercise(id: cableCrunches, name: "Cable Crunches", exerciseType: .reps, muscleGroups: ["Abs"], equipment: "Cable Machine", notes: "Kabelzug, kniend, Crunches nach unten", createdAt: now, updatedAt: now)
+            ]
+
+            for exercise in exercises {
+                try exercise.insert(db)
+            }
+
+            // ── Create Templates ──
+            let pushTemplate = WorkoutTemplate(id: UUID(), name: "Push (Brust, Trizeps, vordere Schulter)", createdAt: now, updatedAt: now)
+            let pullTemplate = WorkoutTemplate(id: UUID(), name: "Pull (Rücken, Bizeps, hintere Schulter)", createdAt: now, updatedAt: now)
+            let legsTemplate = WorkoutTemplate(id: UUID(), name: "Legs (Beine, unterer Rücken)", createdAt: now, updatedAt: now)
+            let shouldersTemplate = WorkoutTemplate(id: UUID(), name: "Schultern, Arme & Core", createdAt: now, updatedAt: now)
+
+            try pushTemplate.insert(db)
+            try pullTemplate.insert(db)
+            try legsTemplate.insert(db)
+            try shouldersTemplate.insert(db)
+
+            // ── Template Exercises: Push ──
+            try TemplateExercise(templateId: pushTemplate.id, exerciseId: bankdruecken, sortOrder: 0, targetSets: 4, targetReps: 8).insert(db)
+            try TemplateExercise(templateId: pushTemplate.id, exerciseId: schraegbankKH, sortOrder: 1, targetSets: 3, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: pushTemplate.id, exerciseId: dips, sortOrder: 2, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: pushTemplate.id, exerciseId: cableFlys, sortOrder: 3, targetSets: 3, targetReps: 15).insert(db)
+            try TemplateExercise(templateId: pushTemplate.id, exerciseId: trizepsPushdowns, sortOrder: 4, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: pushTemplate.id, exerciseId: overheadTrizeps, sortOrder: 5, targetSets: 3, targetReps: 12).insert(db)
+
+            // ── Template Exercises: Pull ──
+            try TemplateExercise(templateId: pullTemplate.id, exerciseId: klimmzuege, sortOrder: 0, targetSets: 4, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: pullTemplate.id, exerciseId: rudernLH, sortOrder: 1, targetSets: 4, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: pullTemplate.id, exerciseId: seatedCableRow, sortOrder: 2, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: pullTemplate.id, exerciseId: facePulls, sortOrder: 3, targetSets: 3, targetReps: 20).insert(db)
+            try TemplateExercise(templateId: pullTemplate.id, exerciseId: bizepsCurlsLH, sortOrder: 4, targetSets: 3, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: pullTemplate.id, exerciseId: hammerCurls, sortOrder: 5, targetSets: 3, targetReps: 12).insert(db)
+
+            // ── Template Exercises: Legs ──
+            try TemplateExercise(templateId: legsTemplate.id, exerciseId: kniebeugen, sortOrder: 0, targetSets: 4, targetReps: 8).insert(db)
+            try TemplateExercise(templateId: legsTemplate.id, exerciseId: rumKreuzheben, sortOrder: 1, targetSets: 3, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: legsTemplate.id, exerciseId: beinpresse, sortOrder: 2, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: legsTemplate.id, exerciseId: walkingLunges, sortOrder: 3, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: legsTemplate.id, exerciseId: beinbeuger, sortOrder: 4, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: legsTemplate.id, exerciseId: wadenheben, sortOrder: 5, targetSets: 4, targetReps: 15).insert(db)
+
+            // ── Template Exercises: Shoulders/Arms/Core ──
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: schulterdrKH, sortOrder: 0, targetSets: 4, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: seitheben, sortOrder: 1, targetSets: 4, targetReps: 15).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: reverseFlys, sortOrder: 2, targetSets: 3, targetReps: 15).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: barbellCurls, sortOrder: 3, targetSets: 3, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: inclineCurls, sortOrder: 4, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: skullcrushers, sortOrder: 5, targetSets: 3, targetReps: 10).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: cableKickbacks, sortOrder: 6, targetSets: 3, targetReps: 12).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: hangingLegRaises, sortOrder: 7, targetSets: 3, targetReps: 15).insert(db)
+            try TemplateExercise(templateId: shouldersTemplate.id, exerciseId: cableCrunches, sortOrder: 8, targetSets: 3, targetReps: 20).insert(db)
+
+            // ── Create Default Schedule ──
+            try Schedule(dayOfWeek: 0, templateId: nil, isRestDay: true).insert(db)  // Sunday
+            try Schedule(dayOfWeek: 1, templateId: pushTemplate.id, isRestDay: false).insert(db)  // Monday
+            try Schedule(dayOfWeek: 2, templateId: pullTemplate.id, isRestDay: false).insert(db)  // Tuesday
+            try Schedule(dayOfWeek: 3, templateId: legsTemplate.id, isRestDay: false).insert(db)  // Wednesday
+            try Schedule(dayOfWeek: 4, templateId: nil, isRestDay: true).insert(db)  // Thursday
+            try Schedule(dayOfWeek: 5, templateId: shouldersTemplate.id, isRestDay: false).insert(db)  // Friday
+            try Schedule(dayOfWeek: 6, templateId: nil, isRestDay: true).insert(db)  // Saturday
+
+            try Self.applyExerciseCatalogMetadataAndInsertions(db: db, now: now)
+            print("✅ Seeded 27 exercises, 4 templates, and weekly schedule")
+        }
+    }
+
+    func resetAndReseedDatabase() throws {
+        try dbQueue.write { db in
+            print("🗑️ Deleting all data...")
+
+            // Delete in order respecting foreign key constraints
+            try? db.execute(sql: "DELETE FROM session_sets")
+            try? db.execute(sql: "DELETE FROM workout_sessions")
+            try? db.execute(sql: "DELETE FROM workout_day_plan_exercises")
+            try? db.execute(sql: "DELETE FROM workout_day_plans")
+            try? db.execute(sql: "DELETE FROM schedule")
+            try? db.execute(sql: "DELETE FROM template_exercises")
+            try? db.execute(sql: "DELETE FROM templates")
+            try? db.execute(sql: "DELETE FROM exercises")
+            try? db.execute(sql: "DELETE FROM measurements")
+            try? db.execute(sql: "DELETE FROM body_photos")
+
+            print("✅ All data deleted")
+        }
+
+        // Reseed
+        try seedDefaultDataIfNeeded()
+    }
+
+    // MARK: - Generic Operations
+
+    func read<T: FetchableRecord>(_ request: QueryInterfaceRequest<T>) throws -> [T] {
+        try dbQueue.read { db in
+            try request.fetchAll(db)
+        }
+    }
+
+    func write<T>(_ updates: @escaping (Database) throws -> T) throws -> T {
+        try dbQueue.write(updates)
+    }
+
+    // MARK: - Exercise Operations
+
+    func fetchAllExercises() throws -> [Exercise] {
+        try dbQueue.read { db in
+            try Exercise.order(Exercise.Columns.name).fetchAll(db)
+        }
+    }
+
+    func fetchExercise(id: UUID) throws -> Exercise? {
+        try dbQueue.read { db in
+            try Exercise.fetchOne(db, key: id)
+        }
+    }
+
+    func saveExercise(_ exercise: Exercise) throws {
+        var exercise = exercise
+        exercise.updatedAt = Date()
+        try dbQueue.write { db in
+            try exercise.save(db)
+        }
+    }
+
+    func deleteExercise(_ exercise: Exercise) throws {
+        try dbQueue.write { db in
+            try exercise.delete(db)
+        }
+    }
+
+    func searchExercises(query: String, muscleGroup: String? = nil) throws -> [Exercise] {
+        try dbQueue.read { db in
+            var sql = "SELECT * FROM exercises WHERE name LIKE ?"
+            var arguments: [DatabaseValueConvertible] = ["%\(query)%"]
+
+            if let muscleGroup = muscleGroup {
+                sql += " AND muscle_groups LIKE ?"
+                arguments.append("%\(muscleGroup)%")
+            }
+
+            sql += " ORDER BY name"
+
+            return try Exercise.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
+        }
+    }
+
+    // MARK: - Template Operations
+
+    func fetchAllTemplates() throws -> [WorkoutTemplate] {
+        try dbQueue.read { db in
+            try WorkoutTemplate.order(WorkoutTemplate.Columns.name).fetchAll(db)
+        }
+    }
+
+    func fetchTemplate(id: UUID) throws -> WorkoutTemplate? {
+        try dbQueue.read { db in
+            try WorkoutTemplate.fetchOne(db, key: id)
+        }
+    }
+
+    func fetchTemplateWithExercises(id: UUID) throws -> TemplateWithExercises? {
+        try dbQueue.read { db in
+            guard let template = try WorkoutTemplate.fetchOne(db, key: id) else {
+                return nil
+            }
+
+            let templateExercises = try TemplateExercise
+                .filter(TemplateExercise.Columns.templateId == id)
+                .order(TemplateExercise.Columns.sortOrder)
+                .fetchAll(db)
+
+            var exerciseDetails: [TemplateExerciseDetail] = []
+            for te in templateExercises {
+                if let exercise = try Exercise.fetchOne(db, key: te.exerciseId) {
+                    exerciseDetails.append(TemplateExerciseDetail(templateExercise: te, exercise: exercise))
+                }
+            }
+
+            return TemplateWithExercises(template: template, exercises: exerciseDetails)
+        }
+    }
+
+    func saveTemplate(_ template: WorkoutTemplate) throws {
+        var template = template
+        template.updatedAt = Date()
+        try dbQueue.write { db in
+            try template.save(db)
+        }
+    }
+
+    func deleteTemplate(_ template: WorkoutTemplate) throws {
+        try dbQueue.write { db in
+            try template.delete(db)
+        }
+    }
+
+    func saveTemplateExercise(_ templateExercise: TemplateExercise) throws {
+        try dbQueue.write { db in
+            try templateExercise.save(db)
+        }
+    }
+
+    func deleteTemplateExercise(_ templateExercise: TemplateExercise) throws {
+        try dbQueue.write { db in
+            try templateExercise.delete(db)
+        }
+    }
+
+    func fetchTemplateExercises(templateId: UUID) throws -> [TemplateExerciseDetail] {
+        try dbQueue.read { db in
+            let templateExercises = try TemplateExercise
+                .filter(TemplateExercise.Columns.templateId == templateId)
+                .order(TemplateExercise.Columns.sortOrder)
+                .fetchAll(db)
+
+            var details: [TemplateExerciseDetail] = []
+            for te in templateExercises {
+                if let exercise = try Exercise.fetchOne(db, key: te.exerciseId) {
+                    details.append(TemplateExerciseDetail(templateExercise: te, exercise: exercise))
+                }
+            }
+            return details
+        }
+    }
+
+    // MARK: - Schedule Operations
+
+    func fetchSchedule() throws -> [Schedule] {
+        try dbQueue.read { db in
+            try Schedule.order(Schedule.Columns.dayOfWeek).fetchAll(db)
+        }
+    }
+
+    func fetchScheduleWithTemplates() throws -> [ScheduleDay] {
+        try dbQueue.read { db in
+            var scheduleDays: [ScheduleDay] = []
+
+            for day in 0..<7 {
+                let schedule = try Schedule
+                    .filter(Schedule.Columns.dayOfWeek == day)
+                    .fetchOne(db)
+
+                var template: WorkoutTemplate? = nil
+                if let templateId = schedule?.templateId {
+                    template = try WorkoutTemplate.fetchOne(db, key: templateId)
+                }
+
+                scheduleDays.append(ScheduleDay(
+                    schedule: schedule,
+                    template: template,
+                    dayOfWeek: day
+                ))
+            }
+
+            return scheduleDays
+        }
+    }
+
+    func saveSchedule(_ schedule: Schedule) throws {
+        try dbQueue.write { db in
+            // Delete existing schedule for this day
+            try Schedule
+                .filter(Schedule.Columns.dayOfWeek == schedule.dayOfWeek)
+                .deleteAll(db)
+            // Save new schedule
+            try schedule.save(db)
+        }
+    }
+
+    // MARK: - Workout Session Operations
+
+    func fetchAllSessions() throws -> [WorkoutSession] {
+        try dbQueue.read { db in
+            try WorkoutSession
+                .order(WorkoutSession.Columns.startedAt.desc)
+                .fetchAll(db)
+        }
+    }
+
+    func fetchSession(id: UUID) throws -> WorkoutSession? {
+        try dbQueue.read { db in
+            try WorkoutSession.fetchOne(db, key: id)
+        }
+    }
+
+    func fetchActiveSession() throws -> WorkoutSession? {
+        try dbQueue.read { db in
+            try WorkoutSession
+                .filter(WorkoutSession.Columns.completedAt == nil)
+                .order(WorkoutSession.Columns.startedAt.desc)
+                .fetchOne(db)
+        }
+    }
+
+    func fetchSessionWithDetails(id: UUID) throws -> SessionWithDetails? {
+        try dbQueue.read { db in
+            guard let session = try WorkoutSession.fetchOne(db, key: id) else {
+                return nil
+            }
+            return try self.buildSessionWithDetails(session: session, db: db)
+        }
+    }
+
+    func saveSession(_ session: WorkoutSession) throws {
+        try dbQueue.write { db in
+            try session.save(db)
+        }
+    }
+
+    func deleteSession(_ session: WorkoutSession) throws {
+        try dbQueue.write { db in
+            try session.delete(db)
+        }
+    }
+
+    func fetchRecentSessions(limit: Int = 10) throws -> [SessionWithDetails] {
+        try dbQueue.read { db in
+            let sessions = try WorkoutSession
+                .filter(WorkoutSession.Columns.completedAt != nil)
+                .order(WorkoutSession.Columns.startedAt.desc)
+                .limit(limit)
+                .fetchAll(db)
+
+            return try sessions.map { try self.buildSessionWithDetails(session: $0, db: db) }
+        }
+    }
+
+    func fetchCompletedSessions(on date: Date) throws -> [SessionWithDetails] {
+        try dbQueue.read { db in
+            let start = Calendar.current.startOfDay(for: date)
+            guard let end = Calendar.current.date(byAdding: .day, value: 1, to: start) else {
+                return []
+            }
+
+            let sessions = try WorkoutSession
+                .filter(WorkoutSession.Columns.completedAt != nil)
+                .filter(WorkoutSession.Columns.startedAt >= start)
+                .filter(WorkoutSession.Columns.startedAt < end)
+                .order(WorkoutSession.Columns.startedAt.desc)
+                .fetchAll(db)
+
+            return try sessions.map { try self.buildSessionWithDetails(session: $0, db: db) }
+        }
+    }
+
+    func fetchWorkoutMonthSummaries(month: Date) throws -> [WorkoutCalendarDaySummary] {
+        try dbQueue.read { db in
+            let calendar = Calendar.current
+            let monthStart = calendar.startOfDay(for: calendar.date(from: calendar.dateComponents([.year, .month], from: month)) ?? month)
+            guard let monthEnd = calendar.date(byAdding: DateComponents(month: 1), to: monthStart) else {
+                return []
+            }
+
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT DATE(started_at, 'localtime') AS workout_date,
+                           COUNT(*) AS workout_count
+                    FROM workout_sessions
+                    WHERE completed_at IS NOT NULL
+                      AND started_at >= ?
+                      AND started_at < ?
+                    GROUP BY DATE(started_at, 'localtime')
+                    ORDER BY workout_date ASC
+                """,
+                arguments: [monthStart, monthEnd]
+            )
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.timeZone = .current
+
+            return rows.compactMap { row in
+                guard let dateString: String = row["workout_date"],
+                      let date = formatter.date(from: dateString) else {
+                    return nil
+                }
+                let workoutCount: Int = row["workout_count"] ?? 0
+                return WorkoutCalendarDaySummary(date: calendar.startOfDay(for: date), workoutCount: workoutCount)
+            }
+        }
+    }
+
+    func fetchWorkoutDayPlan(date: Date, templateId: UUID) throws -> WorkoutDayPlanWithExercises? {
+        try dbQueue.read { db in
+            let normalizedDate = Calendar.current.startOfDay(for: date)
+            guard let plan = try WorkoutDayPlan
+                .filter(WorkoutDayPlan.Columns.date == normalizedDate)
+                .filter(WorkoutDayPlan.Columns.templateId == templateId)
+                .fetchOne(db) else {
+                return nil
+            }
+
+            return try self.buildWorkoutDayPlan(plan: plan, db: db)
+        }
+    }
+
+    func fetchWorkoutDayPlan(id: UUID) throws -> WorkoutDayPlanWithExercises? {
+        try dbQueue.read { db in
+            guard let plan = try WorkoutDayPlan.fetchOne(db, key: id) else {
+                return nil
+            }
+
+            return try self.buildWorkoutDayPlan(plan: plan, db: db)
+        }
+    }
+
+    func fetchLatestWorkoutDayPlan(
+        templateId: UUID,
+        before date: Date? = nil
+    ) throws -> WorkoutDayPlanWithExercises? {
+        try dbQueue.read { db in
+            var request = WorkoutDayPlan
+                .filter(WorkoutDayPlan.Columns.templateId == templateId)
+
+            if let date {
+                request = request.filter(WorkoutDayPlan.Columns.date < Calendar.current.startOfDay(for: date))
+            }
+
+            guard let plan = try request
+                .order(WorkoutDayPlan.Columns.date.desc)
+                .order(WorkoutDayPlan.Columns.updatedAt.desc)
+                .fetchOne(db) else {
+                return nil
+            }
+
+            return try self.buildWorkoutDayPlan(plan: plan, db: db)
+        }
+    }
+
+    func saveWorkoutDayPlan(
+        date: Date,
+        template: WorkoutTemplate,
+        exercises: [WorkoutPlanExerciseDraft],
+        shuffleCount: Int,
+        existingPlanId: UUID? = nil
+    ) throws -> WorkoutDayPlanWithExercises {
+        try dbQueue.write { db in
+            let now = Date()
+            let normalizedDate = Calendar.current.startOfDay(for: date)
+            let plan: WorkoutDayPlan
+
+            if let existingPlanId,
+               var existing = try WorkoutDayPlan.fetchOne(db, key: existingPlanId) {
+                existing.date = normalizedDate
+                existing.templateId = template.id
+                existing.shuffleCount = shuffleCount
+                existing.updatedAt = now
+                try existing.save(db)
+                plan = existing
+            } else if var existing = try WorkoutDayPlan
+                .filter(WorkoutDayPlan.Columns.date == normalizedDate)
+                .filter(WorkoutDayPlan.Columns.templateId == template.id)
+                .fetchOne(db) {
+                existing.shuffleCount = shuffleCount
+                existing.updatedAt = now
+                try existing.save(db)
+                plan = existing
+            } else {
+                let created = WorkoutDayPlan(
+                    date: normalizedDate,
+                    templateId: template.id,
+                    shuffleCount: shuffleCount,
+                    createdAt: now,
+                    updatedAt: now
+                )
+                try created.insert(db)
+                plan = created
+            }
+
+            try WorkoutDayPlanExercise
+                .filter(WorkoutDayPlanExercise.Columns.planId == plan.id)
+                .deleteAll(db)
+
+            for draft in exercises.sorted(by: { $0.sortOrder < $1.sortOrder }) {
+                let planExercise = WorkoutDayPlanExercise(
+                    planId: plan.id,
+                    exerciseId: draft.exercise.id,
+                    sortOrder: draft.sortOrder,
+                    targetSets: draft.targetSets,
+                    targetReps: draft.targetReps,
+                    targetDuration: draft.targetDuration,
+                    targetWeight: draft.targetWeight,
+                    isAnchor: draft.isAnchor
+                )
+                try planExercise.insert(db)
+            }
+
+            return try self.buildWorkoutDayPlan(plan: plan, db: db)
+        }
+    }
+
+    func fetchLatestPlanSnapshot(
+        templateId: UUID,
+        excludingPlanId: UUID? = nil,
+        before date: Date? = nil
+    ) throws -> [WorkoutPlanExerciseSnapshot]? {
+        try dbQueue.read { db in
+            var request = WorkoutDayPlan
+                .filter(WorkoutDayPlan.Columns.templateId == templateId)
+
+            if let excludingPlanId {
+                request = request.filter(WorkoutDayPlan.Columns.id != excludingPlanId)
+            }
+            if let date {
+                request = request.filter(WorkoutDayPlan.Columns.date < Calendar.current.startOfDay(for: date))
+            }
+
+            let plan = try request
+                .order(WorkoutDayPlan.Columns.date.desc)
+                .order(WorkoutDayPlan.Columns.updatedAt.desc)
+                .fetchOne(db)
+
+            guard let plan else { return nil }
+            return try self.fetchPlanSnapshots(planId: plan.id, db: db)
+        }
+    }
+
+    func fetchLatestCompletedSessionSnapshot(
+        templateId: UUID,
+        before date: Date? = nil
+    ) throws -> [WorkoutPlanExerciseSnapshot]? {
+        try dbQueue.read { db in
+            var request = WorkoutSession
+                .filter(WorkoutSession.Columns.templateId == templateId)
+                .filter(WorkoutSession.Columns.completedAt != nil)
+
+            if let date {
+                request = request.filter(WorkoutSession.Columns.startedAt < Calendar.current.startOfDay(for: date))
+            }
+
+            guard let session = try request
+                .order(WorkoutSession.Columns.startedAt.desc)
+                .fetchOne(db) else {
+                return nil
+            }
+
+            return try self.fetchSessionSnapshots(sessionId: session.id, db: db)
+        }
+    }
+
+    func fetchCompletedSessionCount(
+        templateId: UUID,
+        before date: Date? = nil
+    ) throws -> Int {
+        try dbQueue.read { db in
+            var request = WorkoutSession
+                .filter(WorkoutSession.Columns.templateId == templateId)
+                .filter(WorkoutSession.Columns.completedAt != nil)
+
+            if let date {
+                request = request.filter(WorkoutSession.Columns.startedAt < Calendar.current.startOfDay(for: date))
+            }
+
+            return try request.fetchCount(db)
+        }
+    }
+
+    // MARK: - Session Set Operations
+
+    func saveSessionSet(_ set: SessionSet) throws {
+        try dbQueue.write { db in
+            try set.save(db)
+        }
+    }
+
+    func deleteSessionSet(_ set: SessionSet) throws {
+        try dbQueue.write { db in
+            try set.delete(db)
+        }
+    }
+
+    func fetchSessionSets(sessionId: UUID) throws -> [SessionSetWithExercise] {
+        try dbQueue.read { db in
+            let sets = try SessionSet
+                .filter(SessionSet.Columns.sessionId == sessionId)
+                .order(SessionSet.Columns.completedAt)
+                .fetchAll(db)
+
+            var results: [SessionSetWithExercise] = []
+            for set in sets {
+                if let exercise = try Exercise.fetchOne(db, key: set.exerciseId) {
+                    results.append(SessionSetWithExercise(sessionSet: set, exercise: exercise))
+                }
+            }
+            return results
+        }
+    }
+
+    func fetchLastLoggedValues(exerciseId: UUID) throws -> (reps: Int?, weight: Double?) {
+        try dbQueue.read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT reps, weight
+                    FROM session_sets
+                    WHERE exercise_id = ?
+                      AND (reps IS NOT NULL OR weight IS NOT NULL)
+                    ORDER BY completed_at DESC
+                    LIMIT 1
+                """,
+                arguments: [exerciseId]
+            )
+
+            let reps: Int? = row?["reps"]
+            let weight: Double? = row?["weight"]
+            return (reps, weight)
+        }
+    }
+
+    // MARK: - Cardio Session Operations
+
+    func saveCardioSession(_ cardio: CardioSession) throws {
+        try dbQueue.write { db in
+            try cardio.save(db)
+        }
+    }
+
+    func deleteCardioSession(_ cardio: CardioSession) throws {
+        try dbQueue.write { db in
+            try cardio.delete(db)
+        }
+    }
+
+    // MARK: - Measurement Operations
+
+    func fetchAllMeasurements() throws -> [Measurement] {
+        try dbQueue.read { db in
+            try Measurement.order(Measurement.Columns.date.desc).fetchAll(db)
+        }
+    }
+
+    func fetchMeasurement(id: UUID) throws -> Measurement? {
+        try dbQueue.read { db in
+            try Measurement.fetchOne(db, key: id)
+        }
+    }
+
+    func fetchMeasurementWithPhotos(id: UUID) throws -> MeasurementWithPhotos? {
+        try dbQueue.read { db in
+            guard let measurement = try Measurement.fetchOne(db, key: id) else {
+                return nil
+            }
+
+            let photos = try ProgressPhoto
+                .filter(ProgressPhoto.Columns.measurementId == id)
+                .fetchAll(db)
+
+            return MeasurementWithPhotos(measurement: measurement, photos: photos)
+        }
+    }
+
+    func saveMeasurement(_ measurement: Measurement) throws {
+        try dbQueue.write { db in
+            try measurement.save(db)
+        }
+    }
+
+    func deleteMeasurement(_ measurement: Measurement) throws {
+        try dbQueue.write { db in
+            try measurement.delete(db)
+        }
+    }
+
+    // MARK: - Progress Photo Operations
+
+    func saveProgressPhoto(_ photo: ProgressPhoto) throws {
+        try dbQueue.write { db in
+            try photo.save(db)
+        }
+    }
+
+    func deleteProgressPhoto(_ photo: ProgressPhoto) throws {
+        try dbQueue.write { db in
+            try photo.delete(db)
+        }
+    }
+
+    func fetchPhotos(measurementId: UUID) throws -> [ProgressPhoto] {
+        try dbQueue.read { db in
+            try ProgressPhoto
+                .filter(ProgressPhoto.Columns.measurementId == measurementId)
+                .fetchAll(db)
+        }
+    }
+
+    // MARK: - Personal Record Operations
+
+    func fetchAllPersonalRecords() throws -> [PersonalRecordWithExercise] {
+        try dbQueue.read { db in
+            let records = try PersonalRecord
+                .order(PersonalRecord.Columns.achievedAt.desc)
+                .fetchAll(db)
+
+            var results: [PersonalRecordWithExercise] = []
+            for record in records {
+                if let exercise = try Exercise.fetchOne(db, key: record.exerciseId) {
+                    results.append(PersonalRecordWithExercise(record: record, exercise: exercise))
+                }
+            }
+            return results
+        }
+    }
+
+    func fetchPersonalRecords(exerciseId: UUID) throws -> [PersonalRecord] {
+        try dbQueue.read { db in
+            try PersonalRecord
+                .filter(PersonalRecord.Columns.exerciseId == exerciseId)
+                .order(PersonalRecord.Columns.achievedAt.desc)
+                .fetchAll(db)
+        }
+    }
+
+    func fetchCurrentPR(exerciseId: UUID) throws -> PersonalRecord? {
+        try dbQueue.read { db in
+            try PersonalRecord
+                .filter(PersonalRecord.Columns.exerciseId == exerciseId)
+                .order(PersonalRecord.Columns.weight.desc)
+                .fetchOne(db)
+        }
+    }
+
+    func savePersonalRecord(_ record: PersonalRecord) throws {
+        try dbQueue.write { db in
+            try record.save(db)
+        }
+    }
+
+    func checkAndSaveIfPR(exerciseId: UUID, weight: Double, reps: Int, sessionId: UUID) throws -> PersonalRecord? {
+        try dbQueue.write { db in
+            // Fetch existing PR for this exercise
+            let existingPR = try PersonalRecord
+                .filter(PersonalRecord.Columns.exerciseId == exerciseId)
+                .order(PersonalRecord.Columns.weight.desc)
+                .fetchOne(db)
+
+            // Check if this is a new PR
+            let isNewPR: Bool
+            if let existing = existingPR {
+                // New PR if weight is higher, or same weight with more reps
+                isNewPR = weight > existing.weight || (weight == existing.weight && reps > existing.reps)
+            } else {
+                // No existing PR, so this is automatically a PR
+                isNewPR = true
+            }
+
+            if isNewPR {
+                let newPR = PersonalRecord(
+                    exerciseId: exerciseId,
+                    weight: weight,
+                    reps: reps,
+                    sessionId: sessionId
+                )
+                try newPR.save(db)
+                return newPR
+            }
+
+            return nil
+        }
+    }
+
+    // MARK: - Settings Operations
+
+    func fetchSettings() throws -> AppSettings {
+        try dbQueue.read { db in
+            let entries = try SettingEntry.fetchAll(db)
+            var settings = AppSettings()
+
+            for entry in entries {
+                switch entry.key {
+                case AppSettings.defaultRestTimeKey:
+                    settings.defaultRestTime = Int(entry.value) ?? 90
+                case AppSettings.workoutReminderEnabledKey:
+                    settings.workoutReminderEnabled = entry.value == "true"
+                case AppSettings.workoutReminderTimeKey:
+                    let components = entry.value.split(separator: ":")
+                    if components.count == 2,
+                       let hour = Int(components[0]),
+                       let minute = Int(components[1]) {
+                        settings.workoutReminderTime = Calendar.current.date(
+                            from: DateComponents(hour: hour, minute: minute)
+                        ) ?? settings.workoutReminderTime
+                    }
+                case AppSettings.restTimerSoundKey:
+                    settings.restTimerSound = entry.value == "true"
+                case AppSettings.restTimerHapticKey:
+                    settings.restTimerHaptic = entry.value == "true"
+                case AppSettings.weekStartsOnKey:
+                    settings.weekStartsOn = Int(entry.value) ?? 1
+                case AppSettings.trainingSetupCompletedKey:
+                    settings.trainingSetupCompleted = entry.value == "true"
+                case AppSettings.goalFocusKey:
+                    settings.goalFocus = entry.value
+                case AppSettings.preferredSessionLengthMinutesKey:
+                    settings.preferredSessionLengthMinutes = Int(entry.value) ?? 60
+                case AppSettings.targetTrainingDaysPerWeekKey:
+                    settings.targetTrainingDaysPerWeek = Int(entry.value) ?? 4
+                case AppSettings.rotationStyleKey:
+                    settings.rotationStyle = entry.value
+                case AppSettings.preferredLanguageKey:
+                    settings.preferredLanguage = entry.value
+                case AppSettings.motivationPushEnabledKey:
+                    settings.motivationPushEnabled = entry.value == "true"
+                case AppSettings.socialPushEnabledKey:
+                    settings.socialPushEnabled = entry.value == "true"
+                case AppSettings.socialVisibilityKey:
+                    settings.socialVisibility = entry.value
+                case AppSettings.quietHoursStartKey:
+                    settings.quietHoursStart = entry.value
+                case AppSettings.quietHoursEndKey:
+                    settings.quietHoursEnd = entry.value
+                default:
+                    break
+                }
+            }
+
+            return settings
+        }
+    }
+
+    func saveSetting(key: String, value: String) throws {
+        try dbQueue.write { db in
+            let entry = SettingEntry(key: key, value: value)
+            try entry.save(db)
+        }
+    }
+
+    func saveSettings(_ settings: AppSettings) throws {
+        try dbQueue.write { db in
+            try SettingEntry(key: AppSettings.defaultRestTimeKey, value: "\(settings.defaultRestTime)").save(db)
+            try SettingEntry(key: AppSettings.workoutReminderEnabledKey, value: settings.workoutReminderEnabled ? "true" : "false").save(db)
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm"
+            try SettingEntry(key: AppSettings.workoutReminderTimeKey, value: formatter.string(from: settings.workoutReminderTime)).save(db)
+
+            try SettingEntry(key: AppSettings.restTimerSoundKey, value: settings.restTimerSound ? "true" : "false").save(db)
+            try SettingEntry(key: AppSettings.restTimerHapticKey, value: settings.restTimerHaptic ? "true" : "false").save(db)
+            try SettingEntry(key: AppSettings.weekStartsOnKey, value: "\(settings.weekStartsOn)").save(db)
+            try SettingEntry(key: AppSettings.trainingSetupCompletedKey, value: settings.trainingSetupCompleted ? "true" : "false").save(db)
+            try SettingEntry(key: AppSettings.goalFocusKey, value: settings.goalFocus).save(db)
+            try SettingEntry(key: AppSettings.preferredSessionLengthMinutesKey, value: "\(settings.preferredSessionLengthMinutes)").save(db)
+            try SettingEntry(key: AppSettings.targetTrainingDaysPerWeekKey, value: "\(settings.targetTrainingDaysPerWeek)").save(db)
+            try SettingEntry(key: AppSettings.rotationStyleKey, value: settings.rotationStyle).save(db)
+            try SettingEntry(key: AppSettings.preferredLanguageKey, value: settings.preferredLanguage).save(db)
+            try SettingEntry(key: AppSettings.motivationPushEnabledKey, value: settings.motivationPushEnabled ? "true" : "false").save(db)
+            try SettingEntry(key: AppSettings.socialPushEnabledKey, value: settings.socialPushEnabled ? "true" : "false").save(db)
+            try SettingEntry(key: AppSettings.socialVisibilityKey, value: settings.socialVisibility).save(db)
+            try SettingEntry(key: AppSettings.quietHoursStartKey, value: settings.quietHoursStart).save(db)
+            try SettingEntry(key: AppSettings.quietHoursEndKey, value: settings.quietHoursEnd).save(db)
+        }
+    }
+
+    // MARK: - Chart Data Operations
+
+    func fetchExerciseProgress(exerciseId: UUID, from startDate: Date? = nil, to endDate: Date? = nil) throws -> [(date: Date, maxWeight: Double, totalVolume: Double)] {
+        try dbQueue.read { db in
+            var sql = """
+                SELECT DATE(ss.completed_at) as date,
+                       MAX(ss.weight) as max_weight,
+                       SUM(COALESCE(ss.reps, 0) * COALESCE(ss.weight, 0)) as total_volume
+                FROM session_sets ss
+                WHERE ss.exercise_id = ?
+            """
+            var arguments: [DatabaseValueConvertible] = [exerciseId]
+
+            if let start = startDate {
+                sql += " AND ss.completed_at >= ?"
+                arguments.append(start)
+            }
+            if let end = endDate {
+                sql += " AND ss.completed_at <= ?"
+                arguments.append(end)
+            }
+
+            sql += " GROUP BY DATE(ss.completed_at) ORDER BY date"
+
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
+            return rows.compactMap { row -> (Date, Double, Double)? in
+                guard let dateString: String = row["date"],
+                      let date = ISO8601DateFormatter().date(from: dateString + "T00:00:00Z") else {
+                    return nil
+                }
+                let maxWeight: Double = row["max_weight"] ?? 0
+                let totalVolume: Double = row["total_volume"] ?? 0
+                return (date, maxWeight, totalVolume)
+            }
+        }
+    }
+
+    func fetchBodyWeightProgress(from startDate: Date? = nil, to endDate: Date? = nil) throws -> [(date: Date, weight: Double)] {
+        try dbQueue.read { db in
+            var request = Measurement
+                .filter(Measurement.Columns.bodyWeight != nil)
+                .order(Measurement.Columns.date)
+
+            if let start = startDate {
+                request = request.filter(Measurement.Columns.date >= start)
+            }
+            if let end = endDate {
+                request = request.filter(Measurement.Columns.date <= end)
+            }
+
+            let measurements = try request.fetchAll(db)
+            return measurements.compactMap { m -> (Date, Double)? in
+                guard let weight = m.bodyWeight else { return nil }
+                return (m.date, weight)
+            }
+        }
+    }
+
+    // MARK: - Export Operations
+
+    func exportToJSON() throws -> Data {
+        try dbQueue.read { db in
+            var export: [String: Any] = [:]
+
+            let exercises = try Exercise.fetchAll(db)
+            export["exercises"] = exercises.map { e -> [String: Any] in
+                [
+                    "id": e.id.uuidString,
+                    "name": e.name,
+                    "exerciseType": e.exerciseType.rawValue,
+                    "muscleGroups": e.muscleGroups,
+                    "equipment": e.equipment as Any,
+                    "notes": e.notes as Any,
+                    "createdAt": ISO8601DateFormatter().string(from: e.createdAt),
+                    "updatedAt": ISO8601DateFormatter().string(from: e.updatedAt)
+                ]
+            }
+
+            let templates = try WorkoutTemplate.fetchAll(db)
+            export["templates"] = templates.map { t -> [String: Any] in
+                [
+                    "id": t.id.uuidString,
+                    "name": t.name,
+                    "createdAt": ISO8601DateFormatter().string(from: t.createdAt),
+                    "updatedAt": ISO8601DateFormatter().string(from: t.updatedAt)
+                ]
+            }
+
+            let sessions = try WorkoutSession.fetchAll(db)
+            export["workoutSessions"] = sessions.map { s -> [String: Any] in
+                [
+                    "id": s.id.uuidString,
+                    "templateId": s.templateId?.uuidString as Any,
+                    "startedAt": ISO8601DateFormatter().string(from: s.startedAt),
+                    "completedAt": s.completedAt.map { ISO8601DateFormatter().string(from: $0) } as Any,
+                    "duration": s.duration as Any,
+                    "notes": s.notes as Any
+                ]
+            }
+
+            let sets = try SessionSet.fetchAll(db)
+            export["sessionSets"] = sets.map { s -> [String: Any] in
+                [
+                    "id": s.id.uuidString,
+                    "sessionId": s.sessionId.uuidString,
+                    "exerciseId": s.exerciseId.uuidString,
+                    "setNumber": s.setNumber,
+                    "reps": s.reps as Any,
+                    "duration": s.duration as Any,
+                    "weight": s.weight as Any,
+                    "completedAt": ISO8601DateFormatter().string(from: s.completedAt)
+                ]
+            }
+
+            let measurements = try Measurement.fetchAll(db)
+            export["measurements"] = measurements.map { m -> [String: Any] in
+                [
+                    "id": m.id.uuidString,
+                    "date": ISO8601DateFormatter().string(from: m.date),
+                    "bodyWeight": m.bodyWeight as Any,
+                    "bodyFat": m.bodyFat as Any,
+                    "notes": m.notes as Any,
+                    "createdAt": ISO8601DateFormatter().string(from: m.createdAt)
+                ]
+            }
+
+            let records = try PersonalRecord.fetchAll(db)
+            export["personalRecords"] = records.map { r -> [String: Any] in
+                [
+                    "id": r.id.uuidString,
+                    "exerciseId": r.exerciseId.uuidString,
+                    "weight": r.weight,
+                    "reps": r.reps,
+                    "achievedAt": ISO8601DateFormatter().string(from: r.achievedAt),
+                    "sessionId": r.sessionId.uuidString
+                ]
+            }
+
+            return try JSONSerialization.data(withJSONObject: export, options: .prettyPrinted)
+        }
+    }
+
+    func exportToCSV() throws -> [String: String] {
+        try dbQueue.read { db in
+            var csvFiles: [String: String] = [:]
+
+            // Exercises CSV
+            let exercises = try Exercise.fetchAll(db)
+            var exerciseCSV = "id,name,exercise_type,muscle_groups,equipment,notes,created_at,updated_at\n"
+            for e in exercises {
+                exerciseCSV += "\"\(e.id.uuidString)\",\"\(e.name)\",\"\(e.exerciseType.rawValue)\",\"\(e.muscleGroups.joined(separator: ";"))\",\"\(e.equipment ?? "")\",\"\(e.notes ?? "")\",\"\(e.createdAt)\",\"\(e.updatedAt)\"\n"
+            }
+            csvFiles["exercises.csv"] = exerciseCSV
+
+            // Sessions CSV
+            let sessions = try WorkoutSession.fetchAll(db)
+            var sessionCSV = "id,template_id,started_at,completed_at,duration,notes\n"
+            for s in sessions {
+                sessionCSV += "\"\(s.id.uuidString)\",\"\(s.templateId?.uuidString ?? "")\",\"\(s.startedAt)\",\"\(s.completedAt?.description ?? "")\",\"\(s.duration ?? 0)\",\"\(s.notes ?? "")\"\n"
+            }
+            csvFiles["workout_sessions.csv"] = sessionCSV
+
+            // Sets CSV
+            let sets = try SessionSet.fetchAll(db)
+            var setsCSV = "id,session_id,exercise_id,set_number,reps,duration,weight,completed_at\n"
+            for s in sets {
+                setsCSV += "\"\(s.id.uuidString)\",\"\(s.sessionId.uuidString)\",\"\(s.exerciseId.uuidString)\",\(s.setNumber),\(s.reps ?? 0),\(s.duration ?? 0),\(s.weight ?? 0),\"\(s.completedAt)\"\n"
+            }
+            csvFiles["session_sets.csv"] = setsCSV
+
+            // Measurements CSV
+            let measurements = try Measurement.fetchAll(db)
+            var measurementCSV = "id,date,body_weight,body_fat,neck,shoulders,chest,waist,hips,notes,created_at\n"
+            for m in measurements {
+                measurementCSV += "\"\(m.id.uuidString)\",\"\(m.date)\",\(m.bodyWeight ?? 0),\(m.bodyFat ?? 0),\(m.neck ?? 0),\(m.shoulders ?? 0),\(m.chest ?? 0),\(m.waist ?? 0),\(m.hips ?? 0),\"\(m.notes ?? "")\",\"\(m.createdAt)\"\n"
+            }
+            csvFiles["measurements.csv"] = measurementCSV
+
+            return csvFiles
+        }
+    }
+
+    private func buildSessionWithDetails(session: WorkoutSession, db: Database) throws -> SessionWithDetails {
+        var template: WorkoutTemplate? = nil
+        if let templateId = session.templateId {
+            template = try WorkoutTemplate.fetchOne(db, key: templateId)
+        }
+
+        let sets = try SessionSet
+            .filter(SessionSet.Columns.sessionId == session.id)
+            .order(SessionSet.Columns.completedAt)
+            .fetchAll(db)
+
+        var setsWithExercises: [SessionSetWithExercise] = []
+        for set in sets {
+            if let exercise = try Exercise.fetchOne(db, key: set.exerciseId) {
+                setsWithExercises.append(SessionSetWithExercise(sessionSet: set, exercise: exercise))
+            }
+        }
+
+        let cardioSessions = try CardioSession
+            .filter(CardioSession.Columns.sessionId == session.id)
+            .fetchAll(db)
+
+        return SessionWithDetails(
+            session: session,
+            template: template,
+            sets: setsWithExercises,
+            cardioSessions: cardioSessions
+        )
+    }
+
+    private func buildWorkoutDayPlan(plan: WorkoutDayPlan, db: Database) throws -> WorkoutDayPlanWithExercises {
+        guard let template = try WorkoutTemplate.fetchOne(db, key: plan.templateId) else {
+            throw NSError(
+                domain: "DatabaseService",
+                code: 404,
+                userInfo: [NSLocalizedDescriptionKey: "Missing template for day plan \(plan.id.uuidString)"]
+            )
+        }
+
+        let planExercises = try WorkoutDayPlanExercise
+            .filter(WorkoutDayPlanExercise.Columns.planId == plan.id)
+            .order(WorkoutDayPlanExercise.Columns.sortOrder)
+            .fetchAll(db)
+
+        let details = try planExercises.compactMap { planExercise -> WorkoutDayPlanExerciseDetail? in
+            guard let exercise = try Exercise.fetchOne(db, key: planExercise.exerciseId) else {
+                return nil
+            }
+            return WorkoutDayPlanExerciseDetail(planExercise: planExercise, exercise: exercise)
+        }
+
+        return WorkoutDayPlanWithExercises(plan: plan, template: template, exercises: details)
+    }
+
+    private func fetchPlanSnapshots(planId: UUID, db: Database) throws -> [WorkoutPlanExerciseSnapshot] {
+        let planExercises = try WorkoutDayPlanExercise
+            .filter(WorkoutDayPlanExercise.Columns.planId == planId)
+            .order(WorkoutDayPlanExercise.Columns.sortOrder)
+            .fetchAll(db)
+
+        return try planExercises.compactMap { planExercise in
+            guard let exercise = try Exercise.fetchOne(db, key: planExercise.exerciseId) else {
+                return nil
+            }
+
+            return WorkoutPlanExerciseSnapshot(
+                exercise: exercise,
+                sortOrder: planExercise.sortOrder,
+                isAnchor: planExercise.isAnchor
+            )
+        }
+    }
+
+    private func fetchSessionSnapshots(sessionId: UUID, db: Database) throws -> [WorkoutPlanExerciseSnapshot] {
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT exercise_id,
+                       MIN(completed_at) AS first_completed_at
+                FROM session_sets
+                WHERE session_id = ?
+                GROUP BY exercise_id
+                ORDER BY first_completed_at ASC
+            """,
+            arguments: [sessionId]
+        )
+
+        var snapshots: [WorkoutPlanExerciseSnapshot] = []
+
+        for (index, row) in rows.enumerated() {
+            guard let exerciseId: UUID = row["exercise_id"],
+                  let exercise = try Exercise.fetchOne(db, key: exerciseId) else {
+                continue
+            }
+
+            snapshots.append(
+                WorkoutPlanExerciseSnapshot(
+                    exercise: exercise,
+                    sortOrder: index,
+                    isAnchor: exercise.isAnchorCandidate
+                )
+            )
+        }
+
+        return snapshots
+    }
+
+    private static func applyExerciseCatalogMetadataAndInsertions(db: Database, now: Date) throws {
+        for entry in exerciseCatalogEntries() {
+            if var existing = try Exercise
+                .filter(Exercise.Columns.name == entry.name)
+                .fetchOne(db) {
+                existing.movementPattern = entry.movementPattern
+                existing.variationGroup = entry.variationGroup
+                existing.splitTags = entry.splitTags
+                existing.isCompound = entry.isCompound
+                existing.isAnchorCandidate = entry.isAnchorCandidate
+                existing.updatedAt = now
+                try existing.save(db)
+            } else {
+                try entry.makeExercise(now: now).insert(db)
+            }
+        }
+    }
+
+    private static func exerciseCatalogEntries() -> [ExerciseCatalogEntry] {
+        [
+            ExerciseCatalogEntry(name: "Bankdrücken", muscleGroups: ["Chest", "Triceps", "Front Delts"], equipment: "Barbell", notes: "Flache Bank, kontrolliertes Absenken zur Brust", movementPattern: "horizontal-press", variationGroup: "bench-press", splitTags: ["push"], isCompound: true, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Push-Ups", muscleGroups: ["Chest", "Triceps", "Front Delts"], equipment: "Bodyweight", notes: "Saubere Ganzkörperspannung und volle Range of Motion", movementPattern: "push-up", variationGroup: "push-up", splitTags: ["push"], isCompound: true, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Schrägbank Kurzhanteln", muscleGroups: ["Chest", "Front Delts"], equipment: "Dumbbells", notes: "Schrägbank 30-45 Grad, voller Bewegungsumfang", movementPattern: "incline-press", variationGroup: "incline-dumbbell-press", splitTags: ["push"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Incline Barbell Bench Press", muscleGroups: ["Chest", "Front Delts", "Triceps"], equipment: "Barbell", notes: "Leicht steilere Bank, kontrollierter Lockout", movementPattern: "incline-press", variationGroup: "incline-barbell-press", splitTags: ["push"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Machine Chest Press", muscleGroups: ["Chest", "Triceps"], equipment: "Machine", notes: "Stabile Brustpresse mit voller Kontraktion", movementPattern: "chest-secondary", variationGroup: "machine-chest-press", splitTags: ["push"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Dips", muscleGroups: ["Chest", "Triceps"], equipment: "Dip Station", notes: "Brust-fokussiert: Oberkörper leicht nach vorne lehnen", movementPattern: "chest-secondary", variationGroup: "dips", splitTags: ["push"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Cable Flys", muscleGroups: ["Chest"], equipment: "Cable Machine", notes: "Kabelzug, kontrollierte Bewegung, Squeeze am Ende", movementPattern: "chest-isolation", variationGroup: "cable-fly", splitTags: ["push"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Pec Deck Fly", muscleGroups: ["Chest"], equipment: "Machine", notes: "Ellbogen leicht gebeugt, Fokus auf Brustkontraktion", movementPattern: "chest-isolation", variationGroup: "pec-deck-fly", splitTags: ["push"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Low Cable Fly", muscleGroups: ["Chest"], equipment: "Cable Machine", notes: "Von unten nach oben ziehen, obere Brust ansteuern", movementPattern: "chest-isolation", variationGroup: "low-cable-fly", splitTags: ["push"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Trizeps Pushdowns", muscleGroups: ["Triceps"], equipment: "Cable Machine", notes: "Kabelzug mit Seil oder V-Bar", movementPattern: "triceps-extension", variationGroup: "rope-pushdown", splitTags: ["push", "arms"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Overhead Trizeps Extension", muscleGroups: ["Triceps"], equipment: "Cable Machine", notes: "Kabelzug oder Kurzhantel über Kopf", movementPattern: "triceps-extension", variationGroup: "overhead-cable-extension", splitTags: ["push", "arms"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Skullcrushers", muscleGroups: ["Triceps"], equipment: "Barbell", notes: "SZ-Stange, Ellenbogen fixiert", movementPattern: "triceps-extension", variationGroup: "skullcrusher", splitTags: ["push", "arms", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Seitheben", muscleGroups: ["Shoulders"], equipment: "Dumbbells", notes: "Leichtes Gewicht, kontrolliert, 12-15 Reps", movementPattern: "lateral-delt", variationGroup: "lateral-raise", splitTags: ["push", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Cable Lateral Raise", muscleGroups: ["Shoulders"], equipment: "Cable Machine", notes: "Einarmig am Kabel, konstante Spannung", movementPattern: "lateral-delt", variationGroup: "cable-lateral-raise", splitTags: ["push", "shoulders"], isCompound: false, isAnchorCandidate: false),
+
+            ExerciseCatalogEntry(name: "Deadlift", muscleGroups: ["Back", "Glutes", "Hamstrings"], equipment: "Barbell", notes: "Konventionelles Kreuzheben vom Boden, neutraler Rücken", movementPattern: "hip-hinge", variationGroup: "deadlift", splitTags: ["pull"], isCompound: true, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Pull-Ups", muscleGroups: ["Back", "Biceps"], equipment: "Pull-Up Bar", notes: "Saubere Wiederholungen, bei Bedarf Zusatzgewicht oder Assist", movementPattern: "vertical-pull", variationGroup: "pull-up", splitTags: ["pull"], isCompound: true, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Klimmzüge / Latzug", muscleGroups: ["Back", "Biceps"], equipment: "Pull-Up Bar", notes: "Klimmzüge oder Latzug als Alternative", movementPattern: "vertical-pull", variationGroup: "lat-pulldown", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Wide-Grip Lat Pulldown", muscleGroups: ["Back", "Biceps"], equipment: "Cable Machine", notes: "Breiter Griff, Schulterblätter nach unten ziehen", movementPattern: "vertical-pull", variationGroup: "wide-lat-pulldown", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Neutral-Grip Lat Pulldown", muscleGroups: ["Back", "Biceps"], equipment: "Cable Machine", notes: "Neutraler Griff für lat-lastige Wiederholungen", movementPattern: "vertical-pull", variationGroup: "neutral-lat-pulldown", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Rudern Langhantel", muscleGroups: ["Back", "Biceps"], equipment: "Barbell", notes: "Vorgebeugtes Rudern, Rücken gerade halten", movementPattern: "horizontal-row", variationGroup: "barbell-row", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Seated Cable Row", muscleGroups: ["Back"], equipment: "Cable Machine", notes: "Enger Griff, Schulterblätter zusammenziehen", movementPattern: "horizontal-row", variationGroup: "seated-cable-row", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Chest-Supported Row", muscleGroups: ["Back", "Biceps"], equipment: "Machine", notes: "Brust liegt auf, Rückenarbeit ohne Schwung", movementPattern: "horizontal-row", variationGroup: "chest-supported-row", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "T-Bar Row", muscleGroups: ["Back", "Biceps"], equipment: "Machine", notes: "Neutraler Griff, Ellbogen dicht am Körper", movementPattern: "horizontal-row", variationGroup: "t-bar-row", splitTags: ["pull"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Face Pulls", muscleGroups: ["Rear Delts", "Upper Back"], equipment: "Cable Machine", notes: "Seil auf Gesichtshöhe ziehen, hohe Wiederholungen", movementPattern: "upper-back", variationGroup: "face-pull", splitTags: ["pull", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Reverse Pec Deck", muscleGroups: ["Rear Delts", "Upper Back"], equipment: "Machine", notes: "Brust anlehnen, Ellbogen leicht gebeugt", movementPattern: "rear-delt", variationGroup: "reverse-pec-deck", splitTags: ["pull", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Straight-Arm Pulldown", muscleGroups: ["Back"], equipment: "Cable Machine", notes: "Lat isolieren, Arme fast gestreckt halten", movementPattern: "lat-isolation", variationGroup: "straight-arm-pulldown", splitTags: ["pull"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Bizeps Curls Langhantel", muscleGroups: ["Biceps"], equipment: "Barbell", notes: "SZ-Stange oder gerade Stange", movementPattern: "biceps-curl", variationGroup: "barbell-curl", splitTags: ["pull", "arms"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Hammer Curls", muscleGroups: ["Biceps", "Forearms"], equipment: "Dumbbells", notes: "Neutraler Griff, Kurzhanteln", movementPattern: "forearm-grip", variationGroup: "hammer-curl", splitTags: ["pull", "arms"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Preacher Curl", muscleGroups: ["Biceps"], equipment: "Machine", notes: "Strikter Curl mit fixer Oberarmlage", movementPattern: "biceps-curl", variationGroup: "preacher-curl", splitTags: ["pull", "arms"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Incline Dumbbell Curls", muscleGroups: ["Biceps"], equipment: "Dumbbells", notes: "Schrägbank 45 Grad, volle Dehnung", movementPattern: "biceps-curl", variationGroup: "incline-dumbbell-curl", splitTags: ["pull", "arms", "shoulders"], isCompound: false, isAnchorCandidate: false),
+
+            ExerciseCatalogEntry(name: "Kniebeugen", muscleGroups: ["Quadriceps", "Glutes"], equipment: "Barbell", notes: "High Bar oder Low Bar Squat, tiefe Position", movementPattern: "squat", variationGroup: "squat", splitTags: ["legs"], isCompound: true, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Front Squat", muscleGroups: ["Quadriceps", "Core"], equipment: "Barbell", notes: "Aufrechter Torso, Ellbogen hoch halten", movementPattern: "quad-compound", variationGroup: "front-squat", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Rumänisches Kreuzheben", muscleGroups: ["Hamstrings", "Glutes", "Lower Back"], equipment: "Barbell", notes: "Beine leicht gebeugt, Hüfte nach hinten", movementPattern: "hinge-posterior", variationGroup: "romanian-deadlift", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Hip Thrust", muscleGroups: ["Glutes", "Hamstrings"], equipment: "Barbell", notes: "Oben kurz halten, Gesäß maximal anspannen", movementPattern: "hinge-posterior", variationGroup: "hip-thrust", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Beinpresse", muscleGroups: ["Quadriceps", "Glutes"], equipment: "Leg Press", notes: "Fußposition variieren für Fokus", movementPattern: "quad-compound", variationGroup: "leg-press", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Hack Squat", muscleGroups: ["Quadriceps", "Glutes"], equipment: "Machine", notes: "Tiefer Bewegungsradius ohne untere Rückenlast", movementPattern: "quad-compound", variationGroup: "hack-squat", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Walking Lunges", muscleGroups: ["Quadriceps", "Glutes"], equipment: "Dumbbells", notes: "Reps pro Bein, aufrechter Oberkörper", movementPattern: "unilateral-leg", variationGroup: "walking-lunge", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Bulgarian Split Squat", muscleGroups: ["Quadriceps", "Glutes"], equipment: "Dumbbells", notes: "Hinteren Fuß erhöht, volles Absenken", movementPattern: "unilateral-leg", variationGroup: "bulgarian-split-squat", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Step-Ups", muscleGroups: ["Quadriceps", "Glutes"], equipment: "Dumbbells", notes: "Explosiv hochsteigen, kontrolliert absenken", movementPattern: "unilateral-leg", variationGroup: "step-up", splitTags: ["legs"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Beinbeuger Maschine", muscleGroups: ["Hamstrings"], equipment: "Machine", notes: "Liegend oder sitzend, kontrolliert", movementPattern: "hamstring-isolation", variationGroup: "leg-curl", splitTags: ["legs"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Seated Leg Curl", muscleGroups: ["Hamstrings"], equipment: "Machine", notes: "Sitzende Variante für sauberen Stretch", movementPattern: "hamstring-isolation", variationGroup: "seated-leg-curl", splitTags: ["legs"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Wadenheben stehend", muscleGroups: ["Calves"], equipment: "Machine", notes: "Voller Bewegungsumfang, Pause unten", movementPattern: "calves", variationGroup: "standing-calf-raise", splitTags: ["legs"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Seated Calf Raise", muscleGroups: ["Calves"], equipment: "Machine", notes: "Bewusst langsam, oben kurz halten", movementPattern: "calves", variationGroup: "seated-calf-raise", splitTags: ["legs"], isCompound: false, isAnchorCandidate: false),
+
+            ExerciseCatalogEntry(name: "Overhead Press", muscleGroups: ["Shoulders", "Triceps"], equipment: "Barbell", notes: "Stehend drücken, Core fest halten", movementPattern: "vertical-press", variationGroup: "overhead-press", splitTags: ["shoulders"], isCompound: true, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Schulterdrücken Kurzhantel", muscleGroups: ["Shoulders", "Triceps"], equipment: "Dumbbells", notes: "Sitzend oder stehend, Kurzhanteln", movementPattern: "vertical-press", variationGroup: "dumbbell-shoulder-press", splitTags: ["shoulders"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Arnold Press", muscleGroups: ["Shoulders", "Triceps"], equipment: "Dumbbells", notes: "Rotation kontrolliert und ohne Schwung", movementPattern: "vertical-press", variationGroup: "arnold-press", splitTags: ["shoulders"], isCompound: true, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Reverse Flys", muscleGroups: ["Rear Delts"], equipment: "Dumbbells", notes: "Vorgebeugt oder am Kabelzug", movementPattern: "rear-delt", variationGroup: "reverse-fly", splitTags: ["shoulders", "pull"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Barbell Curls", muscleGroups: ["Biceps"], equipment: "Barbell", notes: "SZ-Stange, strikter Form", movementPattern: "biceps-curl", variationGroup: "barbell-curl", splitTags: ["arms", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Cable Kickbacks", muscleGroups: ["Triceps"], equipment: "Cable Machine", notes: "Kabelzug, ein Arm, volle Extension", movementPattern: "arm-secondary", variationGroup: "cable-kickback", splitTags: ["arms", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Rope Hammer Curl", muscleGroups: ["Biceps", "Forearms"], equipment: "Cable Machine", notes: "Seilgriff am Kabel, neutraler Curl", movementPattern: "forearm-grip", variationGroup: "rope-hammer-curl", splitTags: ["arms", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Hanging Leg Raises", muscleGroups: ["Core"], equipment: "Pull-Up Bar", notes: "Beine gestreckt oder angewinkelt", movementPattern: "core-flexion", variationGroup: "hanging-leg-raise", splitTags: ["core", "shoulders"], isCompound: false, isAnchorCandidate: true),
+            ExerciseCatalogEntry(name: "Cable Crunches", muscleGroups: ["Core"], equipment: "Cable Machine", notes: "Kabelzug, kniend, Crunches nach unten", movementPattern: "core-flexion", variationGroup: "cable-crunch", splitTags: ["core", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Ab Wheel Rollout", muscleGroups: ["Core"], equipment: "Ab Wheel", notes: "Spannung halten, nur so weit rollen wie kontrollierbar", movementPattern: "core-stability", variationGroup: "ab-wheel", splitTags: ["core", "shoulders"], isCompound: false, isAnchorCandidate: false),
+            ExerciseCatalogEntry(name: "Pallof Press", muscleGroups: ["Core"], equipment: "Cable Machine", notes: "Antirotation mit sauberer Körperspannung", movementPattern: "core-stability", variationGroup: "pallof-press", splitTags: ["core", "shoulders"], isCompound: false, isAnchorCandidate: false)
+        ]
+    }
+
+    private struct ExerciseCatalogEntry {
+        var name: String
+        var muscleGroups: [String]
+        var equipment: String
+        var notes: String
+        var movementPattern: String
+        var variationGroup: String
+        var splitTags: [String]
+        var isCompound: Bool
+        var isAnchorCandidate: Bool
+
+        func makeExercise(now: Date) -> Exercise {
+            Exercise(
+                name: name,
+                exerciseType: .reps,
+                muscleGroups: muscleGroups,
+                equipment: equipment,
+                notes: notes,
+                movementPattern: movementPattern,
+                variationGroup: variationGroup,
+                splitTags: splitTags,
+                isCompound: isCompound,
+                isAnchorCandidate: isAnchorCandidate,
+                createdAt: now,
+                updatedAt: now
+            )
+        }
+    }
+}
