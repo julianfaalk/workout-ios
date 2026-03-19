@@ -4,42 +4,48 @@ struct FriendsView: View {
     @StateObject private var viewModel = FriendsViewModel()
     @EnvironmentObject private var sessionViewModel: AppSessionViewModel
     @EnvironmentObject private var localization: LocalizationService
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    inviteCard
+            ZStack {
+                OnboardingPalette.background(for: colorScheme)
+                    .ignoresSafeArea()
 
-                    if let errorMessage = viewModel.errorMessage {
-                        FriendsStatusBanner(
-                            icon: "exclamationmark.triangle.fill",
-                            title: localization.localized("common.error"),
-                            message: errorMessage,
-                            tint: .red
-                        )
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        inviteCard
+
+                        if let errorMessage = viewModel.errorMessage {
+                            FriendsStatusBanner(
+                                icon: "exclamationmark.triangle.fill",
+                                title: localization.localized("common.error"),
+                                message: errorMessage,
+                                tint: .red
+                            )
+                        }
+
+                        if let successMessage = viewModel.successMessage {
+                            FriendsStatusBanner(
+                                icon: "checkmark.circle.fill",
+                                title: localization.localized("common.success"),
+                                message: successMessage,
+                                tint: OnboardingPalette.accent
+                            )
+                        }
+
+                        if !viewModel.payload.incomingRequests.isEmpty || !viewModel.payload.outgoingRequests.isEmpty {
+                            requestsSection
+                        }
+
+                        leaderboardSection
+
+                        if !viewModel.payload.friends.isEmpty {
+                            friendsSection
+                        }
                     }
-
-                    if let successMessage = viewModel.successMessage {
-                        FriendsStatusBanner(
-                            icon: "checkmark.circle.fill",
-                            title: localization.localized("common.success"),
-                            message: successMessage,
-                            tint: OnboardingPalette.accent
-                        )
-                    }
-
-                    if !viewModel.payload.incomingRequests.isEmpty || !viewModel.payload.outgoingRequests.isEmpty {
-                        requestsSection
-                    }
-
-                    leaderboardSection
-
-                    if !viewModel.payload.friends.isEmpty {
-                        friendsSection
-                    }
+                    .padding(20)
                 }
-                .padding(16)
             }
             .navigationTitle(localization.localized("friends.title"))
             .task {
@@ -59,10 +65,11 @@ struct FriendsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(localization.localized("friends.invite.title"))
                 .font(.title3.weight(.bold))
+                .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
 
             Text(localization.localized("friends.invite.subtitle"))
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
 
             HStack(spacing: 12) {
                 TextField(localization.localized("friends.invite.placeholder"), text: $viewModel.inviteCodeInput)
@@ -70,7 +77,8 @@ struct FriendsView: View {
                     .autocorrectionDisabled()
                     .padding(.horizontal, 14)
                     .frame(height: 52)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
+                    .background(OnboardingPalette.elevatedSurface(for: colorScheme), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 Button {
                     Task {
@@ -81,7 +89,7 @@ struct FriendsView: View {
                         .font(.headline)
                         .frame(height: 52)
                         .padding(.horizontal, 18)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(OnboardingPalette.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .foregroundStyle(.white)
                 }
                 .disabled(viewModel.isProcessing)
@@ -92,9 +100,10 @@ struct FriendsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(localization.localized("friends.invite.your_code"))
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
                         Text(viewModel.payload.friendCode)
                             .font(.title3.weight(.bold))
+                            .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
                     }
 
                     Spacer()
@@ -105,35 +114,29 @@ struct FriendsView: View {
                                 .font(.headline)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 10)
-                                .background(Color(.systemBackground), in: Capsule())
+                                .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
+                                .background(OnboardingPalette.surface(for: colorScheme), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(14)
-                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(OnboardingPalette.elevatedSurface(for: colorScheme), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
         .padding(18)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.12, green: 0.27, blue: 0.54),
-                    Color(red: 0.12, green: 0.54, blue: 0.66),
-                    Color(red: 0.20, green: 0.72, blue: 0.50),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+        .background(OnboardingPalette.surface(for: colorScheme), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(OnboardingPalette.border(for: colorScheme), lineWidth: 1)
         )
-        .foregroundStyle(.white)
     }
 
     private var requestsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(localization.localized("friends.requests.title"))
                 .font(.title3.weight(.bold))
+                .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
 
             ForEach(viewModel.payload.incomingRequests) { request in
                 requestRow(request, isIncoming: true)
@@ -152,7 +155,7 @@ struct FriendsView: View {
                 Spacer()
                 Text(request.createdAt.formatted(.relative(presentation: .named)))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
             }
 
             HStack(spacing: 12) {
@@ -166,7 +169,7 @@ struct FriendsView: View {
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .background(OnboardingPalette.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .foregroundStyle(.white)
                     }
                 } else {
@@ -174,12 +177,17 @@ struct FriendsView: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
+                        .background(OnboardingPalette.elevatedSurface(for: colorScheme), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
         }
         .padding(16)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(OnboardingPalette.surface(for: colorScheme), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(OnboardingPalette.border(for: colorScheme), lineWidth: 1)
+        )
     }
 
     private var leaderboardSection: some View {
@@ -187,6 +195,7 @@ struct FriendsView: View {
             HStack {
                 Text(localization.localized("friends.leaderboard.title"))
                     .font(.title3.weight(.bold))
+                    .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
                 Spacer()
                 if viewModel.isLoading {
                     ProgressView()
@@ -206,6 +215,7 @@ struct FriendsView: View {
                     HStack(spacing: 14) {
                         Text("#\(entry.rank)")
                             .font(.headline.weight(.bold))
+                            .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
                             .frame(width: 40, alignment: .leading)
 
                         friendBadge(for: entry.user)
@@ -215,15 +225,20 @@ struct FriendsView: View {
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(localization.localized("friends.metric.sessions_minutes", entry.user.weeklySessions, entry.user.weeklyMinutes))
                                 .font(.caption.weight(.semibold))
+                                .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
                             Text(localization.localized("friends.metric.streak_days", entry.user.currentStreak))
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
                         }
                     }
                     .padding(16)
                     .background(
-                        entry.isCurrentUser ? Color.accentColor.opacity(0.08) : Color(.systemBackground),
+                        entry.isCurrentUser ? OnboardingPalette.accentSoft(for: colorScheme) : OnboardingPalette.surface(for: colorScheme),
                         in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(OnboardingPalette.border(for: colorScheme), lineWidth: 1)
                     )
                 }
             }
@@ -234,6 +249,7 @@ struct FriendsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(localization.localized("friends.list.title"))
                 .font(.title3.weight(.bold))
+                .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
 
             ForEach(viewModel.payload.friends) { friend in
                 HStack(spacing: 14) {
@@ -249,7 +265,11 @@ struct FriendsView: View {
                     }
                 }
                 .padding(16)
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(OnboardingPalette.surface(for: colorScheme), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(OnboardingPalette.border(for: colorScheme), lineWidth: 1)
+                )
             }
         }
     }
@@ -259,14 +279,16 @@ struct FriendsView: View {
             Text(friend.initials)
                 .font(.headline.weight(.bold))
                 .frame(width: 46, height: 46)
-                .background(Color.accentColor.opacity(0.12), in: Circle())
+                .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
+                .background(OnboardingPalette.accentSoft(for: colorScheme), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(friend.displayName)
                     .font(.headline.weight(.bold))
+                    .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
                 Text(friendSummary(friend))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
                     .lineLimit(2)
             }
         }
@@ -289,6 +311,8 @@ struct FriendsView: View {
 }
 
 private struct FriendsStatusBanner: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let icon: String
     let title: String
     let message: String
@@ -305,15 +329,20 @@ private struct FriendsStatusBanner: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.subheadline.weight(.bold))
+                    .foregroundStyle(OnboardingPalette.primaryText(for: colorScheme))
                 Text(message)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
         }
         .padding(14)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(OnboardingPalette.surface(for: colorScheme), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(OnboardingPalette.border(for: colorScheme), lineWidth: 1)
+        )
     }
 }

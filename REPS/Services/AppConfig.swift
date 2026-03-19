@@ -36,7 +36,7 @@ enum AppConfig {
     ]
 
     static let googleClientID = infoString(for: "GIDClientID") ?? infoString(for: "REPSGoogleClientID")
-    static let googleServerClientID = infoString(for: "REPSGoogleServerClientID")
+    static let googleServerClientID = infoString(for: "REPSGoogleServerClientID") ?? infoString(for: "GIDServerClientID")
     static let googleReversedClientID = infoString(for: "REPSGoogleReversedClientID")
 
     static var isGoogleSignInConfigured: Bool {

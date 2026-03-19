@@ -151,6 +151,13 @@ struct AuthGateView: View {
                         .buttonStyle(.plain)
                         .disabled(!AppConfig.isGoogleSignInConfigured)
 
+                        if !AppConfig.isGoogleSignInConfigured {
+                            Text(localization.localized("auth.google_pending"))
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(OnboardingPalette.secondaryText(for: colorScheme))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         Button {
                             showEmailSheet = true
                         } label: {
@@ -207,6 +214,10 @@ struct AuthGateView: View {
                 ) {
                     let sent = await sessionViewModel.authService.sendMagicLink(email: email)
                     magicLinkSent = sent
+                }
+                .onDisappear {
+                    email = ""
+                    magicLinkSent = false
                 }
             }
         }
